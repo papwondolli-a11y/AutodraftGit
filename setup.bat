@@ -47,9 +47,9 @@ if errorlevel 1 goto pip_failed
 :have_aqt
 if "%AUTODRAFT_QT_BASE%"=="" (set "INSTALL_BASE=C:\Qt") else (set "INSTALL_BASE=%AUTODRAFT_QT_BASE%")
 
-rem --- Qt itself (only the parts this app uses: qtbase, qtdeclarative) --------
+rem --- Qt itself (only the parts this app needs: qtbase, qtdeclarative, qttools = windeployqt, qttranslations)
 echo [setup] Installing Qt %SETUP_QT_VERSION% ...
-"%AQT_VENV%\Scripts\aqt.exe" install-qt windows desktop %SETUP_QT_VERSION% win64_mingw -O "%INSTALL_BASE%" --archives qtbase qtdeclarative
+"%AQT_VENV%\Scripts\aqt.exe" install-qt windows desktop %SETUP_QT_VERSION% win64_mingw -O "%INSTALL_BASE%" --archives qtbase qtdeclarative qttools qttranslations
 if errorlevel 1 goto qt_failed
 
 rem --- MinGW compiler ---------------------------------------------------------

@@ -2,6 +2,7 @@
 build/
 release/
 debug/
+AutoDraft/
 Makefile*
 object_script.*
 .qmake.stash
@@ -18,7 +19,8 @@ CMakeLists.txt.user*
 .cache/
 .qtc_clangd/
 .qtcreator/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Rust (tools/*/ 변환기 빌드 산출물)
 **/target/
