@@ -27,6 +27,9 @@ CMakeLists.txt.user*
 __pycache__/
 ai_bridge/tool_profile.txt
 
+# 개인 PC 경로가 들어 있는 바로가기 (build.bat이 만든다)
+*.lnk
+
 # 임시
 scratch_*.html
 *.log

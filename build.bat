@@ -25,6 +25,9 @@ mingw32-make -j%NUMBER_OF_PROCESSORS% debug
 if errorlevel 1 goto make_failed
 
 echo [build] Done: %~dp0build\debug\AutoDraftGit.exe
+rem Create a double-click shortcut "AutoDraft" in the project folder (points to run.bat).
+powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%~dp0AutoDraft.lnk'); $s.TargetPath='%~dp0run.bat'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='%~dp0autodraft.ico'; $s.WindowStyle=7; $s.Description='Run AutoDraft (your latest build)'; $s.Save()" >nul 2>nul
+if exist "%~dp0AutoDraft.lnk" echo [build] Double-click "AutoDraft" in this folder to run it any time.
 exit /b 0
 
 :no_qt
