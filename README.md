@@ -2,6 +2,8 @@
 
 Qt/C++ 기반 2D CAD. 기계·건축 도면 작업을 지원하며 DXF/DWG 입출력과 독자 포맷(.cdb)을 사용한다.
 
+> **처음 사용하는 분은 [START_HERE.md](START_HERE.md)부터 읽으세요.** (Claude 데스크탑 앱으로 새 툴을 만드는 방법)
+
 ## 개발 환경
 - Qt 6.11.0 (MinGW 64bit), C++17
 - Windows
