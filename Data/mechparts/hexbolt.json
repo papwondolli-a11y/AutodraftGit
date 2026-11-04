@@ -1,0 +1,21 @@
+[
+    { "label": "M3",  "d": 3,  "pitch": 0.50, "s": 5.5,  "k": 2.0,  "chamferD": 5.3,  "filletConst": 0.6 },
+    { "label": "M4",  "d": 4,  "pitch": 0.70, "s": 7.0,  "k": 2.8,  "chamferD": 6.8,  "filletConst": 0.8 },
+    { "label": "M5",  "d": 5,  "pitch": 0.80, "s": 8.0,  "k": 3.5,  "chamferD": 7.8,  "filletConst": 0.9 },
+    { "label": "M6",  "d": 6,  "pitch": 1.00, "s": 10.0, "k": 4.0,  "chamferD": 9.8,  "filletConst": 1.0 },
+    { "label": "M8",  "d": 8,  "pitch": 1.25, "s": 13.0, "k": 5.5,  "chamferD": 12.6, "filletConst": 1.2 },
+    { "label": "M10", "d": 10, "pitch": 1.50, "s": 17.0, "k": 7.0,  "chamferD": 16.5, "filletConst": 1.5 },
+    { "label": "M12", "d": 12, "pitch": 1.75, "s": 19.0, "k": 8.0,  "chamferD": 18.0, "filletConst": 2.0 },
+    { "label": "M14", "d": 14, "pitch": 2.00, "s": 22.0, "k": 9.0,  "chamferD": 21.0, "filletConst": 2.0 },
+    { "label": "M16", "d": 16, "pitch": 2.00, "s": 24.0, "k": 10.0, "chamferD": 23.0, "filletConst": 2.0 },
+    { "label": "M18", "d": 18, "pitch": 2.50, "s": 27.0, "k": 12.0, "chamferD": 26.0, "filletConst": 2.5 },
+    { "label": "M20", "d": 20, "pitch": 2.50, "s": 30.0, "k": 13.0, "chamferD": 29.0, "filletConst": 2.5 },
+    { "label": "M22", "d": 22, "pitch": 2.50, "s": 34.0, "k": 14.0, "chamferD": 31.0, "filletConst": 2.5 },
+    { "label": "M24", "d": 24, "pitch": 3.00, "s": 36.0, "k": 15.0, "chamferD": 34.0, "filletConst": 3.0 },
+    { "label": "M27", "d": 27, "pitch": 3.00, "s": 41.0, "k": 17.0, "chamferD": 39.0, "filletConst": 3.0 },
+    { "label": "M30", "d": 30, "pitch": 3.50, "s": 46.0, "k": 19.0, "chamferD": 44.0, "filletConst": 3.5 },
+    { "label": "M33", "d": 33, "pitch": 3.50, "s": 50.0, "k": 21.0, "chamferD": 48.0, "filletConst": 3.5 },
+    { "label": "M36", "d": 36, "pitch": 4.00, "s": 55.0, "k": 23.0, "chamferD": 53.0, "filletConst": 4.0 },
+    { "label": "M39", "d": 39, "pitch": 4.00, "s": 60.0, "k": 25.0, "chamferD": 57.0, "filletConst": 4.0 },
+    { "label": "M42", "d": 42, "pitch": 4.50, "s": 65.0, "k": 26.0, "chamferD": 62.0, "filletConst": 4.5 }
+]

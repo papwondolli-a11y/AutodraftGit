@@ -1,0 +1,475 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd">
+<html><head><meta name="qrichtext" content="1" /><meta charset="utf-8" /><style type="text/css">
+p, li { white-space: pre-wrap; }
+hr { height: 1px; border-width: 0; }
+li.unchecked::marker { content: "\2610"; }
+li.checked::marker { content: "\2612"; }
+</style></head><body style=" font-family:'맑은 고딕'; font-size:12pt; font-weight:400; font-style:normal;">
+<h1 style=" margin-top:18px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; line-height:150%;" id="draw.chapter"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">그</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">리기</span></h1>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">선, 원, 호 등 기본 도형과 해칭, 홀(구멍) 관련 도구입니다. </span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.line"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">라</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">인 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">두 점을 지정해 직선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">Line</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/lineItem.png" width="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">L</span></p></td></tr></table>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">command : line<br />  시작점을 지정하세요 :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"> </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;">  화면에서 첫번째 점(P1) 클릭</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다음점을 지정 하세요 또는 [Undo] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;">  다음 점 입력은 아래 5가지 방법중 선택</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">   1. 화면 다른 한곳(P2) 지정(마우스 좌클릭)    결과 : P1-P2 라인 생성</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">   2. 거리&lt;각도 또는 거리d각도 <br />     ex) </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다음 점을 지정 하세요 또는 [Undo ] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;"> 50&lt;45 또는 50d45</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"><br />     P1 점에서 거리 50mm 각도 45도 인 좌표지점(p2)</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">   3. Ortho(F8) 활성화 상태에서 숫자 입력 <br />     ex) </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다음 점을 지정 하세요 또는 [Undo ] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;"> 50</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"><br />     P1 점에서 마우스 포인터(크로스헤어) 있는 수평,수직 방향으로 거리 50mm 방향 좌표지점(p2)</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">   4. Ortho(F8)비 활성화 상태에서 숫자 입력 <br />     ex) </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다음 점을 지정 하세요 또는 [Undo ] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;"> 50</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"><br />     P1 점에서 마우스 포인터(크로스헤어) 있는 방향으로 거리 50mm 방향 좌표지점(p2) </span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">   5. 절대값 입력 <br />     ex) </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다음 점을 지정 하세요 또는 [Undo ] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;"> 100,150</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"><br /></span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.circle"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">원</span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">중심점과 반지름(또는 지름)을 지정해 원을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">circle</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/circleItem.png" width="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">C</span></p></td></tr></table>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">command : circle<br />  중심점을 지정 하세요 :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"> </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;">  원 중심점 클릭</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">  반지름(R)값 입력 또는 화면에서 지정 하세요 or [Diameter] : [Diameter(D)] :</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"><br /></span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;">    --- 반지름 값입력, 화면에서 클릭<br />    --- [Diameter(D)] 선택 또는 “D” 옵션 명령후 지름값 입력</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;"> </span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.arc"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">호</span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">중심점을 기준으로 호를 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">arc</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/arcItem.png" width="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">A</span></p></td></tr></table>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">Command : arc</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">호의 중심점을 지정 하세요 : </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;"> 호 중심점 클릭(p1)</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt; font-weight:700;">반지름(R) 점을 지정 하세요 (또는 반지름값 입력 ex: 30, 30d45) :</span><span style=" font-size:9pt;">  </span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; color:#1e90ff;">입력 방식 아래 3개중 선택(p2)</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">    </span><span style=" font-size:11pt;">1. 화면 포인트 입력</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    2. 반지름값(숫자) 입력</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    3. 거리d각도 입력</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">다음점을 지정하세요 ( 또는 각도숫자 ex: 45 ) :</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">    </span><span style=" font-size:11pt;">1.</span><span style=" font-size:11pt; font-weight:700;"> </span><span style=" font-size:11pt;">화면에서 포인트 입력</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    2. 숫자입력 (ex :  45 </span><span style=" font-family:'Wingdings'; font-size:11pt;">ß</span><span style=" font-size:11pt;"> 45도를 의미, </span><span style=" font-size:11pt; color:#0070c0;">p1-p2 </span><span style=" font-size:11pt;">기울기을 기준으로 45도 이동점)</span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.arc3point"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">3</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">점 호</span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">시작점·통과점·끝점 3점을 지정해 호를 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">arc3p</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/arc3Item.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">A3</span></p></td></tr></table>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.polyline"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">폴</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">리라인</span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">여러 직선/호 구간을 하나로 연결된 객체로 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">Pline</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/polyline.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">PL</span></p></td></tr></table>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.polygon"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">다</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">각형 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">변의 개수를 지정해 정다각형을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">Polygon</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/polygon.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">PG</span></p></td></tr></table>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">Command :</span> polygon </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">변의 수 입력 :&lt;6&gt; : </span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">중심점을 지정하세요 :</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">원의 반지름 지정 또는 [내접(I)/외접(C)] : [Inscribed(I)/Circumscribed(C)] :</span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.hatch"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">해</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">칭 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">닫힌 영역을 지정한 패턴으로 채웁니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">Hatch</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/hatch.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">HA</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/hatch.png" width="184" height="246" /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">   </span>1. 해칭 패턴을 선택 합니다.</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">   2. 축척을 설정 합니다 – 축척은 보통 도면 스케일 값과 같은 값을<br />                                 설정 하거나 약간 작게 설정 합니다다.<span style=" font-size:9pt;"> </span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">    </span>3.<span style=" font-size:9pt;"> </span><span style=" font-size:11pt;">각도를 설정 합니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    4. 선택 형태 선택 : 아래 설명</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    5. 레이어를 선택 합니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">    *** 선택 형태 ***</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">     1. 상자모양 선택 : 간단한 형태의 도형에 해치시 유용합니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">     </span><span style=" font-size:11pt; font-weight:700;">사각상자 모양의 첫번째 점을 지정 하세요 :</span><span style=" font-size:11pt;">  </span><span style=" font-size:11pt; color:#0070c0;">p1</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#0070c0;">     </span><span style=" font-size:11pt; font-weight:700;">사각상자 모양의 두번째 점을 지정 하세요 :</span><span style=" font-size:11pt;">  </span><span style=" font-size:11pt; color:#0070c0;">p2</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#0070c0;">     </span><span style=" font-size:11pt;">--- p1, p2 형성된 상자모양의 안쪽에 해칭이 됩니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">     </span><img src="qrc:/help/png/hatch1.png" width="410" height="157" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">     2. </span><span style=" font-size:11pt;">복합모양/해치공간선택 :</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">     </span><span style=" font-size:11pt; font-weight:700;">사각상자 모양의 첫번째 점을 지정 하세요 :  </span><span style=" font-size:11pt; color:#0070c0;">p1</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">     </span><span style=" font-size:11pt; font-weight:700;">사각상자 모양의 두번째 점을 지정 하세요 :  </span><span style=" font-size:11pt; color:#0070c0;">p2</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#0070c0;">     </span><span style=" font-size:11pt; font-weight:700;">해칭이될 내부공간을 지정하세요 : </span><span style=" font-size:11pt; color:#0070c0;">p3</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#0070c0;">      </span><span style=" font-size:11pt;">--- p1, p2 형성된 사각형 공간에서 닫힌 공간을 찾고 p3을 포함한 공간에 해칭을 합니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">      </span><img src="qrc:/help/png/hatch2.png" width="428" height="155" /></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.spline"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">스</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">플라인 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">여러 점을 지나는 부드러운 곡선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">Spline</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/spline.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">SP</span></p></td></tr></table>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.gridcenter"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">멀</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">티중심선 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">여러개의 중심선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">Mcenterline</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/mcenter.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">MCL</span></p></td></tr></table>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">Command :</span> <span style=" font-weight:700;">mcl</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">첫 번째 구석점(P1)을 지정하세요 :  [Setup] :</span> <span style=" font-size:11pt; color:#0070c0;">p1</span> </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">반대편 구석점(P2)을 지정하세요 : [Setup] :</span> <span style=" font-size:11pt; color:#0070c0;">p2</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">--- p1,과 p2로 이루어지는 박스안에 중심선이 생성 됩니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">--- 그려지는 데이터는 옵션 명령 </span><span style=" font-size:11pt; font-weight:700;">S</span><span style=" font-size:11pt;"> 에서 설정 합니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/mcl.png" width="417" height="577" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">세로축 간격 : </span><span style=" font-size:11pt;">세로축 중심선 간격을 컴마(,) 구분하여 입력 합니다.</span><span style=" font-size:11pt; color:#0070c0;"><br /></span><span style=" font-size:11pt; font-weight:700;">가로축 간격 : </span><span style=" font-size:11pt;">가로축 중심선 간격을 컴마(,) 구분하여 입력 합니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">저장하기 버튼</span><span style=" font-size:11pt;"> : 세로축과 가로축 입력 데이터를 사용자가 지정하는 이름으로 저장 합니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">                      </span>저장이름은 왼쪽에 리스트 나타나 지면 클릭을 하여 불러 사용 할 수 있습니다. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">치수선 : </span><span style=" font-size:11pt;">원하는 치수선을 선택 할 수 있습니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">주열 번호 :</span><span style=" font-size:11pt;"> 주열 번호를 선택 할 수 있습니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#ff0022;">** 주의 ** 다중 중심선 적용되는 레이어및 수치 데이터</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">중심선 레이어 :</span><span style=" font-size:11pt;"> </span><span style=" font-size:11pt; color:#ff000d;">Limits </span><span style=" font-size:11pt;">명령 </span><span style=" font-size:11pt; font-weight:700;">Setup</span><span style=" font-size:11pt;">에 설정된 중심선 레이어가 적용 됩니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">치수선 :</span><span style=" font-size:11pt;"> </span><span style=" font-size:11pt; color:#ff0004;">Dimstyle</span><span style=" font-size:11pt;"> 명령 </span><span style=" font-size:11pt; font-weight:700;">Setup</span><span style=" font-size:11pt;">에 설정된 값이 적용 됩니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">주열 :</span><span style=" font-size:11pt;"> </span><span style=" font-size:11pt; color:#ff0105;">Gridbubble</span><span style=" font-size:11pt;"> 명령 </span><span style=" font-size:11pt; font-weight:700;">Setup</span><span style=" font-size:11pt;">에 설정된 값이 적용 됩니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt;"><br /></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.parallelcenter"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">평</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">행중심 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">평행한(또는 동심) 두 선/원/호의 가운데를 지나는 중심선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">Parallelcenter</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/pcenter.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">PC</span></p></td></tr></table>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">첫 번째 직선/원/호를 선택하세요 : [Setup] :</span><span style=" font-size:11pt;"> </span><span style=" font-size:11pt; color:#0070c0;">직선/원/호 선택</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">두 번째 직선/원/호를 선택하세요 : [Setup] :</span><span style=" font-size:11pt;">  </span><span style=" font-size:11pt; color:#0070c0;">직첫번째 선택한 객체의 평행 또는 동심인 객체 선택</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; color:#0070c0;">*** 선택된 두 객체가 평행 또는 동심이 아닌 경우 히스토리 라인에 경고 메세지 ***</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#ff8800;">Warning: 두 직선이 평행하지 않습니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#ff8800;">Warning: 두 원/호의 중심이 같아야 합니다.</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; color:#ff8800;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">옵션 명령어 </span><span style=" font-size:11pt; font-weight:700;">S</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/pc.png" width="277" height="190" /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">중심선 위치를 조정 합니다.<span style=" font-size:11pt;"> </span>기본값은 선택된 두 객체의 중앙 입니다. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">첫번째 선택된 객체가 기준이 됩니다.</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">ex) 거리 : 50 --- 첫번째 선택한 객체에서 두번째<span style=" font-size:9pt;">  </span><span style=" font-size:11pt;">선택한 방향으로 50mm 떨어진 곳에 중심선이 생성 됩니다.</span> </p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.boxcenter"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">박</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">스 중심선 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">사각형(박스) 형상의 중심을 지나는 중심선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Boxcenter</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/bcenter.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">BC</span></p></td></tr></table>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.circlecenter"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">원</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;"> 중심 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">원의 중심에 십자형 중심 표시선을 그립니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Circlecenter</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/ccenter.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">CC</span></p></td></tr></table>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt; font-weight:700;"> </span><span style=" font-size:x-large; font-weight:700;">      ** 원 선택시 ** </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">      <span style=" font-weight:700;">원을 선택하거나 중심점을 지정하세요 :</span> 화면에서 원 선택 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">       --- 선택된 원에 중심선 생성 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">       <span style=" font-weight:700;">** 포인트 입력시(도면의 빈곳 클릭) ** </span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">        원을 선택하거나 중심점을 지정하세요 : </span>화면에서 빈곳 클릭 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">        <span style=" font-weight:700;">반지름(R)값 입력 또는 화면에서 지정하세요 or [Diameter] : [Diameter(D)] :</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">         --- 포인트 입력시 원과 중심선이 같이 생성 됩니다. </p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.gridbubble"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">주</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">열번호 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">통심선(그리드)의 열/행 번호를 원형 말풍선 기호로 표시합니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Gridbubble</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/bubble.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">GB</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">시작점을 지정 하세요 [A] (Setup) :</span> <span style=" color:#0055ff;">시작점을 지정 합니다. </span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">방향을 지정 하세요 :</span> <span style=" color:#0055ff;">기울어진 방향을 지정 합니다</span>. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">시작점을 지정 하세요 [A] (Setup) :</span> <span style=" color:#0055ff;">방향 지정 없이 시작점만 지정 합니다</span>. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">시작점을 지정 하세요 [A] (Setup) : </span><span style=" font-weight:700; color:#0055ff;">종료 엔터 스페이스</span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/gb.png" width="297" height="412" /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">라벨선택 : </span>원 안에 들어갈 글자 내용과 크기 레이어를 지정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">원 :</span> 원의 크기와 레이어를 지정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">기울기 적용 : </span>좌,우 주열의 라벨문자의 기울기를 설정 합니다.<span style=" font-size:11pt;"> </span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.surfacefinish"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">거</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">칠기 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">표면 거칠기(다듬질 정도) 기호를 삽입합니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Roughness</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/roughness.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">RG</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/rg.png" width="325" height="441" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.hole"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">구</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">멍 R </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">반지름(R) 기준으로 구멍 기호/치수를 삽입합니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Hole</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/holeR.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">HO</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- 수평, 수직 방향의 구멍을 생성 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- 기본 구멍에 탭, 카운터보어, 카운터싱크를 조합하는 방법으로 구멍을 생성 합니다. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/hole0.png" width="233" height="529" /><span style=" font-size:9pt;">       </span><img src="qrc:/help/png/hole5.png" width="409" height="328" /></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:x-large; font-weight:700;">1. 기본 구멍의 지름을 입력 합니다. </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2. 외형선에서 구멍의 위치를 지정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">3. 여러 개의 구멍을 생성 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">4. 관통 여부를 설정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">5. 구멍의 깊이를 입력 합니다, </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">   --- 4번 막힌 구멍 선택시에만 입력이 가능 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">6. 구멍 레이어를 설정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">7. 구멍의 중심선 생성을 설정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">8. 탭 을 설정 합니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">   --- 카운터보어, 카운터 싱크 같은 기능 입니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#0055ff;">*** 기본 구멍에 </span><span style=" font-size:11pt; color:#0055ff;">기본 구멍에 표시범위가 추가 되었습니다. ***</span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">전체</span> --- 완전한 원 형테의 구멍이 생성됩니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">오른쪽</span> --- 원의 오른쪽 부분(반원)이 생성 됩니다. </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">왼쪽</span> --- 원의 왼쪽 부분(반원)이 생성 됩니다. </p>
+<p style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#0055ff;">2번 위치(거리) 입력 하지 않을시</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">구멍 위치를 지정 하세요 : &lt;생성될 구멍의 위치를 지정 합니다.</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#0055ff;">2번 위치(거리)에 X축 20 Y축 20을 입력시 (이미지 참조)</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">기준선 1 (X축 방향)을 선택 하세요 :  &lt; B 선 선택 &gt;</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">기준선 2 (Y축 방향)를 선택 하세요 : &lt; A 선택 &gt;</span> </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/hole3.png" width="294" height="262" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700; color:#0055ff;">*** 구명 속성 변경 하기 ***</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- 이미 그려진 구명을 선택 합니다. </p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/hole6.png" width="328" height="755" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">오른쪽 dock창에 구멍에 대한 속성값이 <span style=" font-size:11pt;">보여짐니다.</span></p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.holep"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">구</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">멍 P </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">지름(파이, ⌀) 기준으로 구멍 기호를 삽입합니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Holep</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/holeP.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">HP</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- 원형 배열 구멍을 생성 합니다. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/hole4.png" width="387" height="304" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/holep.png" width="370" height="342.111" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="_x0000_t75">중심으로부터 거리 : A </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">배열 : 360도 개수 4개 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">입력시 결과 이미지 </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/holep2.png" width="254" height="238" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="_x0000_t75"><span style=" font-weight:700;">구</span><span style=" font-weight:700;">멍의 위치를 지정 하세요 : [선택(S)]</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">옵션 명령 “s” --- s를 입력하면  </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">기준 1 (원 또는 호)을 선택 하세요 : A원 선택</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">기준 2 (원 또는 호)를 선택 하세요 : B원 선택</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">두개의  원 또는 호를 선택 할 경우 중심으로부터 거리값은 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">무시 되고 배열 범위와 구멍갯수만 적용되어 선택된 2개의 객체 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">중앙에 구멍이 생성 됩니다. </p>
+<h2 style=" margin-top:16px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;" id="draw.holesection"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">구</span><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt; font-weight:700;">멍 단면 </span></h2>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">구멍의 단면 형상을 생성합니다.</span></p>
+<table border="1" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;" width="400" cellspacing="0" cellpadding="10" bgcolor="#555555">
+<tr>
+<td width="100">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">키보드 명령</span></p></td>
+<td width="300">
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt;">Holesection</span></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">아이콘 클릭</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/icons/holeD.png" width="32" height="32" /></p></td></tr>
+<tr>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-family:'Malgun Gothic','Segoe UI','sans-serif'; font-size:9pt;">단축 명령</span></p></td>
+<td>
+<p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:9pt;">HS</span></p></td></tr></table>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- 선택된 구멍R, 구멍P 단면을 생성 합니다. </p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">단면으로 표현할 구멍을 선택 하세요 : </span><span style=" font-size:11pt; color:#0055ff;">화면에서 그려진 구멍R, 구멍P 선택 합니다.</span></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-size:11pt; font-weight:700;">방향을 설정 하세요 :  </span><span style=" font-size:11pt; color:#0055ff;">방향을 지정 합니다. </span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:11pt; color:#0055ff;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/holeinfo.png" width="237" height="179" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><img src="qrc:/help/png/holesec1.png" width="362" height="361" /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:9pt;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">이미지와 같이 A-B 사이 중간점에 구멍 단면을 넣고 싶을 때 </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">단면 형상의 상단면 기준점을 지정 하세요 : </span><span style=" color:#0055ff;">Shift + 마우스 좌클릭 A 점 클릭 (p1)</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">다음점을 지정 하세요 :  </span><span style=" color:#0055ff;">B 점 클릭(p2) </span></p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" font-weight:700;">방향을 설정 하세요 : </span><span style=" color:#0055ff;">p3</span> </p>
+<p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">--- p1-p2 거리의 1/2(중심점) 상단 기준점 설정 됩니다<span style=" font-size:9pt;">. </span></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p></body></html>

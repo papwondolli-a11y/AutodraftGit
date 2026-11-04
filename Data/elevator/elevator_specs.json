@@ -1,0 +1,35 @@
+{
+  "_comment": "인승별 승강로/카/출입구 규격(mm). 제조사 항목을 추가하면 엘리베이터 툴 설정창의 제조사 목록에 나타난다. 값은 제조사 카탈로그 기준이며 설계 전 반드시 최신 자료로 확인할 것.",
+  "makers": [
+    {
+      "name": "현대엘리베이터 NYZER (무기계실) 60m/min",
+      "source": "https://www.hyundaielevator.com/upload/product-catalog/nyzer.pdf",
+      "specs": [
+        { "persons": 8,  "loadKg": 550,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1150, "shaftWidth": 1850, "shaftDepth": 1480 },
+        { "persons": 9,  "loadKg": 600,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1240, "shaftWidth": 1850, "shaftDepth": 1570 },
+        { "persons": 10, "loadKg": 700,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1350, "shaftWidth": 1850, "shaftDepth": 1680 },
+        { "persons": 11, "loadKg": 750,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1450, "shaftWidth": 1850, "shaftDepth": 1780 },
+        { "persons": 13, "loadKg": 900,  "doorWidth": 900,  "carWidth": 1600, "carDepth": 1350, "shaftWidth": 2150, "shaftDepth": 1680 },
+        { "persons": 15, "loadKg": 1000, "doorWidth": 900,  "carWidth": 1600, "carDepth": 1400, "shaftWidth": 2150, "shaftDepth": 1730 },
+        { "persons": 17, "loadKg": 1150, "doorWidth": 1000, "carWidth": 1800, "carDepth": 1400, "shaftWidth": 2370, "shaftDepth": 1730 },
+        { "persons": 20, "loadKg": 1350, "doorWidth": 1000, "carWidth": 1800, "carDepth": 1600, "shaftWidth": 2450, "shaftDepth": 1950 },
+        { "persons": 24, "loadKg": 1600, "doorWidth": 1100, "carWidth": 2000, "carDepth": 1700, "shaftWidth": 2650, "shaftDepth": 2050 }
+      ]
+    },
+    {
+      "name": "현대엘리베이터 NYZER (무기계실) 90~105m/min",
+      "source": "https://www.hyundaielevator.com/upload/product-catalog/nyzer.pdf",
+      "specs": [
+        { "persons": 8,  "loadKg": 550,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1150, "shaftWidth": 1850, "shaftDepth": 1480 },
+        { "persons": 9,  "loadKg": 600,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1240, "shaftWidth": 1850, "shaftDepth": 1570 },
+        { "persons": 10, "loadKg": 700,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1350, "shaftWidth": 1850, "shaftDepth": 1680 },
+        { "persons": 11, "loadKg": 750,  "doorWidth": 800,  "carWidth": 1250, "carDepth": 1450, "shaftWidth": 1850, "shaftDepth": 1780 },
+        { "persons": 13, "loadKg": 900,  "doorWidth": 900,  "carWidth": 1600, "carDepth": 1350, "shaftWidth": 2150, "shaftDepth": 1680 },
+        { "persons": 15, "loadKg": 1000, "doorWidth": 900,  "carWidth": 1600, "carDepth": 1400, "shaftWidth": 2150, "shaftDepth": 1730 },
+        { "persons": 17, "loadKg": 1150, "doorWidth": 1000, "carWidth": 1800, "carDepth": 1400, "shaftWidth": 2370, "shaftDepth": 1730 },
+        { "persons": 20, "loadKg": 1350, "doorWidth": 1000, "carWidth": 1800, "carDepth": 1600, "shaftWidth": 2480, "shaftDepth": 2160 },
+        { "persons": 24, "loadKg": 1600, "doorWidth": 1100, "carWidth": 2000, "carDepth": 1700, "shaftWidth": 2680, "shaftDepth": 2220 }
+      ]
+    }
+  ]
+}

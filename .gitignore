@@ -1,0 +1,32 @@
+# 빌드 산출물
+build/
+release/
+debug/
+Makefile*
+object_script.*
+.qmake.stash
+*.o
+*.obj
+moc_*
+qrc_*.cpp
+ui_*.h
+*.pro.user*
+CMakeLists.txt.user*
+
+# IDE
+.vscode/
+.cache/
+.qtc_clangd/
+.qtcreator/
+.claude/
+
+# Rust (tools/*/ 변환기 빌드 산출물)
+**/target/
+
+# Python
+__pycache__/
+ai_bridge/tool_profile.txt
+
+# 임시
+scratch_*.html
+*.log
