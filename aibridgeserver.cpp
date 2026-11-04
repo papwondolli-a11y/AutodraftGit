@@ -158,6 +158,19 @@ bool AiBridgeServer::start(const QString &serverName) {
   return m_server->listen(serverName);
 }
 
+void AiBridgeServer::stop() {
+  if (m_server->isListening())
+    m_server->close();
+
+  // 이미 연결된 클라이언트를 끊는다. disconnected 시그널이 m_buffers 를 정리하므로
+  // 키 목록을 복사해서 순회한다.
+  const QList<QLocalSocket *> sockets = m_buffers.keys();
+  for (int i = 0; i < sockets.size(); ++i)
+    sockets.at(i)->disconnectFromServer();
+}
+
+bool AiBridgeServer::isListening() const { return m_server->isListening(); }
+
 void AiBridgeServer::onNewConnection() {
   while (m_server->hasPendingConnections()) {
     QLocalSocket *socket = m_server->nextPendingConnection();

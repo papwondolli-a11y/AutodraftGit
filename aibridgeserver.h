@@ -35,6 +35,9 @@ public:
   explicit AiBridgeServer(IAppContext *ctx, QObject *parent = nullptr);
 
   bool start(const QString &serverName = QStringLiteral("AutoDraftAI"));
+  // 연결 통로를 닫고 이미 연결된 클라이언트(MCP 브리지)를 끊는다
+  void stop();
+  bool isListening() const;
   QString serverName() const { return m_serverName; }
 
 signals:

@@ -11,6 +11,7 @@
 #include "commandfactory.h"
 #include "commandmanager.h"
 #include "aibridgeserver.h"
+#include <QSettings>
 #include "custommenubar.h"
 #include "customstatusbar.h"
 #include "customtabwidget.h"
@@ -245,8 +246,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), dwgNo(1) {
           &MainWindow::onNewWindowRequested);
   connect(m_aiBridge, &AiBridgeServer::drawingOpened, this,
           &MainWindow::showWorkspace);
-  if (m_aiBridge->start())
-    m_commandDock->logMessage(QStringLiteral("AI bridge server started: ") + m_aiBridge->serverName(), CommandDock::Info);
+  // 기본값은 꺼짐. 제목 표시줄의 Ai 버튼으로 켜면 그 상태를 기억해 다음 실행에도 이어진다.
+  if (QSettings().value(QStringLiteral("ai/bridgeEnabled"), false).toBool())
+    onAiBridgeToggled(true);
+  else
+    m_customTitleBar->setAiBridgeChecked(false);
 
   // 기존의 toggleMenuBar() 호출 대신 컨트롤러 객체 생성
   m_menuSyncController = new MenuDockSyncController(
@@ -668,6 +672,8 @@ void MainWindow::setupCustomTitleBar(QVBoxLayout *layout) {
 
   connect(m_customTitleBar, &CustomTitleBar::closeRequested, this,
           &MainWindow::onTitleClose);
+  connect(m_customTitleBar, &CustomTitleBar::aiBridgeToggled, this,
+          &MainWindow::onAiBridgeToggled);
 
   layout->addWidget(m_customTitleBar);
 }
@@ -740,6 +746,30 @@ void MainWindow::onActionDxfExport() {
 
 
 void MainWindow::onTitleClose() { close(); }
+
+// 제목 표시줄 Ai 버튼: AI(MCP) 연결을 켜거나 끈다. 켜기에 실패하면 버튼을 꺼짐으로 되돌린다.
+void MainWindow::onAiBridgeToggled(bool on) {
+  if (!m_aiBridge)
+    return;
+
+  if (on) {
+    if (m_aiBridge->start()) {
+      m_commandDock->logMessage(tr("AI 연결 켜짐: ") + m_aiBridge->serverName(),
+                                CommandDock::Info);
+    } else {
+      on = false;
+      m_commandDock->logMessage(tr("AI 연결을 켜지 못했습니다. 다른 AutoDraft가 이미 연결 통로를 쓰고 있을 수 있습니다."),
+                                CommandDock::Info);
+    }
+  } else {
+    m_aiBridge->stop();
+    m_commandDock->logMessage(tr("AI 연결 꺼짐"), CommandDock::Info);
+  }
+
+  if (m_customTitleBar)
+    m_customTitleBar->setAiBridgeChecked(on);
+  QSettings().setValue(QStringLiteral("ai/bridgeEnabled"), on);
+}
 
 // ==========================================================
 // [수정된 윈도우 상태 이벤트]

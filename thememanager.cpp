@@ -166,6 +166,15 @@ QString ThemeManager::getTitleBarTemplate() const {
     CustomTitleBar QPushButton#TitleCloseButton:hover {
       background-color: #e81123; color: white; border-radius: 0px;
     }
+    CustomTitleBar QPushButton#TitleAiButton {
+      font-weight: bold; padding: 0px 6px;
+    }
+    CustomTitleBar QPushButton#TitleAiButton:checked {
+      background-color: #2e9d4f; color: white; border-radius: 3px;
+    }
+    CustomTitleBar QPushButton#TitleAiButton:checked:hover {
+      background-color: #3dbd63; color: white; border-radius: 3px;
+    }
   )";
 }
 

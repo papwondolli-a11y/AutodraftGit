@@ -21,7 +21,12 @@ public:
     // 최대화 상태에 따라 아이콘을 변경하는 함수
     void updateMaximizeButtonIcon(bool isMaximized);
 
+    // AI 연결(MCP) 토글 버튼의 표시 상태를 맞춘다 (aiBridgeToggled 시그널은 내보내지 않는다)
+    void setAiBridgeChecked(bool on);
+
 signals:
+    // Ai 버튼을 눌렀을 때 — on: 켜려는 상태. MainWindow 가 실제로 켜고/끄고 결과를 되돌려준다.
+    void aiBridgeToggled(bool on);
     // MainWindow로 전달할 이벤트 시그널
     void saveRequested();
     void saveAsRequested();
@@ -38,8 +43,11 @@ private slots:
     void onMinimizeClicked();
     void onMaximizeClicked();
     void onCloseClicked();
+    void onAiClicked(bool checked);
 
 private:
+    void updateAiButtonToolTip(bool on);
+    QPushButton *m_aiButton = nullptr;
     QToolBar *m_titleToolBar = nullptr;
     QAction *m_undoAction = nullptr;
     QAction *m_redoAction = nullptr;

@@ -142,6 +142,7 @@ private slots:
   void onTitleMinimize();
  // void onTitleMaximize();
   void onTitleClose();
+  void onAiBridgeToggled(bool on); // 제목 표시줄 Ai 버튼 — AI(MCP) 연결 켜기/끄기
 
   // [신규] 테마 변경 시 QMdiArea 배경을 코드로 갱신 (CSS는 QMdiArea에 적용 안됨)
   void onMdiThemeChanged(ThemeManager::ThemeType type);

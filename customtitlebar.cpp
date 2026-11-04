@@ -59,6 +59,16 @@ CustomTitleBar::CustomTitleBar(QWidget *parent) : QWidget(parent) {
     layout->addWidget(mainTitleLabel);
     layout->addStretch();
 
+    // AI 연결(MCP) 켜기/끄기 토글. 기본은 꺼짐이며, 켜지면 초록색으로 표시된다.
+    m_aiButton = new QPushButton("Ai", this);
+    m_aiButton->setObjectName("TitleAiButton");
+    m_aiButton->setCheckable(true);
+    m_aiButton->setFixedSize(30, 24);
+    updateAiButtonToolTip(false);
+    connect(m_aiButton, &QPushButton::clicked, this, &CustomTitleBar::onAiClicked);
+    layout->addWidget(m_aiButton);
+    layout->addSpacing(8);
+
     QPushButton *minimizeButton = new QPushButton("_", this);
     m_maximizeButton = new QPushButton("□", this);
     QPushButton *closeButton = new QPushButton("X", this);
@@ -86,7 +96,25 @@ void CustomTitleBar::updateMaximizeButtonIcon(bool isMaximized) {
         m_maximizeButton->setText(isMaximized ? "🗗" : "□");
     }
 }
+void CustomTitleBar::setAiBridgeChecked(bool on) {
+    if (!m_aiButton)
+        return;
+    m_aiButton->setChecked(on);
+    updateAiButtonToolTip(on);
+}
+
+void CustomTitleBar::updateAiButtonToolTip(bool on) {
+    if (!m_aiButton)
+        return;
+    m_aiButton->setToolTip(on ? tr("AI 연결(MCP) 켜짐 — 클릭하면 끕니다")
+                              : tr("AI 연결(MCP) 꺼짐 — 클릭하면 켭니다"));
+}
+
 // 람다 대체를 위한 슬롯 구현부
+void CustomTitleBar::onAiClicked(bool checked) {
+    updateAiButtonToolTip(checked);
+    emit aiBridgeToggled(checked);
+}
 void CustomTitleBar::onSaveClicked() { emit saveRequested(); }
 void CustomTitleBar::onSaveAsClicked() { emit saveAsRequested(); }
 void CustomTitleBar::onPrintClicked() { emit printRequested(); }
