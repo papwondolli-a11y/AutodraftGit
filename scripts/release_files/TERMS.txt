@@ -1,0 +1,24 @@
+﻿AutoDraft 사용 조건 / Terms of Use
+==================================
+
+[한국어]
+1. 사용: 개인, 업무, 교육 등 목적에 관계없이 무료로 사용할 수 있습니다.
+2. 재배포: 이 프로그램은 자유롭게 재배포할 수 있습니다.
+   재배포할 때는 이 폴더의 안내 파일(README.txt, TERMS.txt, NOTICE.md)을 함께 두어야 합니다.
+   (함께 쓰인 오픈소스의 라이선스가 고지를 요구하기 때문입니다.)
+3. 무보증: 이 프로그램은 "있는 그대로" 제공되며, 사용으로 생긴 어떤 손해에 대해서도
+   보증하거나 책임지지 않습니다.
+4. 오픈소스: 이 프로그램에는 Qt, acadrust, ACadSharp 등이 포함되어 있으며 각각 자신의
+   라이선스를 따릅니다. 자세한 내용은 NOTICE.md 를 보세요.
+5. 소스 코드는 이 배포본에 포함되어 있지 않습니다.
+
+[English]
+1. Use: AutoDraft may be used free of charge for any purpose (personal, commercial, education).
+2. Redistribution: You may redistribute this program freely. When you do, keep the notice
+   files in this folder (README.txt, TERMS.txt, NOTICE.md) together with it, because the
+   licenses of the bundled open-source components require their notices to be kept.
+3. No warranty: This program is provided "AS IS", without warranty of any kind, and the
+   authors are not liable for any damages arising from its use.
+4. Open source: This program includes Qt, acadrust, ACadSharp and others, each under its own
+   license. See NOTICE.md.
+5. Source code is not included in this distribution.

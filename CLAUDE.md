@@ -124,6 +124,6 @@
 | `tools/` | DWG 변환기 실행 파일과 소스 |
 | `ai_bridge/` | Claude 연동 |
 | `setup.bat`, `build.bat`, `run.bat` | 환경 준비·빌드(+실행 폴더 생성)·실행 |
-| `scripts/` | `env.bat`(도구 위치), `deploy.bat`(독립 실행 폴더 생성), `auto_build.ps1`(자동 빌드 훅) |
+| `scripts/` | `env.bat`(도구 위치), `deploy.bat`(독립 실행 폴더 생성), `auto_build.ps1`(자동 빌드 훅), `make_release.bat`(배포용 ZIP 생성), `release_files/`(배포 ZIP에 넣는 README·사용 조건) |
 | `.claude/settings.json` | 응답이 끝날 때 자동 빌드를 실행하는 훅 설정 |
 | `AutoDraft/` | 독립 실행 폴더(자동 생성, git 제외). `AutoDraft.exe`를 더블클릭 |

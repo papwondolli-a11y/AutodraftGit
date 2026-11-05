@@ -9,6 +9,8 @@ rem ============================================================================
 set "ROOT=%~dp0.."
 set "SRC=%ROOT%\build\release\AutoDraftGit.exe"
 set "OUT=%ROOT%\AutoDraft"
+rem Optional argument: a different output folder (used by make_release.bat).
+if not "%~1"=="" set "OUT=%~1"
 set "PENDING=%ROOT%\build\.deploy_pending"
 
 call "%~dp0env.bat"

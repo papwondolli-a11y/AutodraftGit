@@ -20,5 +20,11 @@ Qt/C++ 기반 2D CAD. 기계·건축 도면 작업을 지원하며 DXF/DWG 입�
 - `Data/`, `blocks/`, `frames/`, `icons/`, `help/`, `translations/` : 실행에 필요한 리소스
 - `ai_bridge/` : MCP 서버(`autodraft_mcp.py`)와 기본 배치(`layouts/default_32.json`). Claude가 AutoDraft를 조작할 때 사용한다.
 
+## 배포용 ZIP 만들기
+```
+scripts\make_release.bat 1.0
+```
+`release_out\AutoDraft-v1.0-win64.zip`이 만들어진다. 개발 도구 없이 압축을 풀고 `AutoDraft\AutoDraft.exe`를 더블클릭하면 실행된다. ZIP 안의 `AutoDraft` 폴더에는 프로그램과 함께 `README.txt`, `TERMS.txt`(무료 사용·재배포 가능), `NOTICE.md`가 들어 있다. 소스 저장소가 비공개이면 이 ZIP을 **공개 저장소의 Releases**에 올려 배포한다(비공개 저장소의 Release는 공개할 수 없다).
+
 ## 서드파티
 Qt 6(LGPLv3), acadrust(MPL-2.0), ACadSharp(MIT)를 사용한다. 자세한 내용은 [NOTICE.md](NOTICE.md) 참고.

@@ -3,6 +3,7 @@ build/
 release/
 debug/
 AutoDraft/
+release_out/
 Makefile*
 object_script.*
 .qmake.stash

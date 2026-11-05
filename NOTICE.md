@@ -47,3 +47,5 @@ SOFTWARE.
 - 용도: 사용자 인터페이스, 그래픽, 파일·DB 처리
 - 라이선스: GNU Lesser General Public License v3 — https://www.qt.io/licensing/
 - Qt 라이브러리는 동적으로 링크되어 사용자가 교체할 수 있습니다.
+- Qt 소스 코드: https://download.qt.io/official_releases/qt/
+- LGPLv3 전문: https://www.gnu.org/licenses/lgpl-3.0.html
