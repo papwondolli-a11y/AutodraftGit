@@ -1486,10 +1486,12 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
 
         // [추가] 구버전 파일 호환성: 접두어가 없는 Radial/Diametric에 기본값 부여
         data.prefix = propObj["Prefix"].toString();
-        if (data.prefix.isEmpty()) {
-            if (data.dimensionType == DimensionType::Radial) data.prefix = "R";
-            else if (data.dimensionType == DimensionType::Diametric) data.prefix = QString::fromUtf8("Ø");
-        }
+        // [수정] R/Ø 기호는 BaseDimensionItem::calculateTextLayout 이 측정값 앞에 자동으로
+        // 붙이므로 prefix 에 기본값을 넣으면 "RR13" 처럼 이중 표기된다.
+        // 이전 버전이 기본값으로 저장해 둔 파일도 중복 기호를 제거한다.
+        if (data.dimensionType == DimensionType::Radial && data.prefix == "R") data.prefix.clear();
+        else if (data.dimensionType == DimensionType::Diametric &&
+                 (data.prefix == QString::fromUtf8("Ø") || data.prefix == QString(QChar(0x00D8)))) data.prefix.clear();
         data.suffix = propObj["Suffix"].toString();
         
         if (data.dimensionType == DimensionType::Angular && !in.atEnd()) {
