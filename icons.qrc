@@ -219,5 +219,6 @@
         <file>icons/column1.png</file>
         <file>icons/dimmerge.png</file>
         <file>icons/dimsplit.png</file>
+        <file>icons/shaft.png</file>
     </qresource>
 </RCC>

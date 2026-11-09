@@ -98,6 +98,7 @@
 #include "insulationtool.h"
 #include "ellipsetool.h"
 #include "detailviewtool.h"
+#include "shafttool.h"
 
 
 AppCommandRegistry::AppCommandRegistry(QObject *parent) : QObject(parent) {}
@@ -303,6 +304,9 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   });
   factory.registerCommand("modify.join", [](IAppContext *c) {
     return new ToolCommand<JoinTool>(c);
+  });
+  factory.registerCommand("mechtools.shaft", [](IAppContext *c) {
+    return new ToolCommand<ShaftTool>(c);
   });
   factory.registerCommand("modify.detailview", [](IAppContext *c) {
     return new ToolCommand<DetailViewTool>(c);
@@ -1767,6 +1771,14 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                      tr("리테이닝링"), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.retainingring", ctx), info,
                          QString());
+  }
+
+  // 탭바 기계 Tools — 축(Shaft): 구간 표 입력 → 외형·중심선·치수 자동 생성
+  {
+    CommandInfo info(QStringLiteral("tab.mechtools.shaft"), tr("기계 Tools"),
+                     tr("   축   "), QString(":/icons/shaft.png"), QStringLiteral("shaft"));
+    mgr->registerCommand(factory.createCommand("mechtools.shaft", ctx), info,
+                         QStringLiteral("shaft"));
   }
 
   {

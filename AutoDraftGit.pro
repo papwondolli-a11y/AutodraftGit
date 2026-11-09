@@ -275,6 +275,11 @@ SOURCES += \
     ribtool.cpp \
     insulationtool.cpp \
     detailviewtool.cpp \
+    shaftbuilder.cpp \
+    shaftdata.cpp \
+    shaftdialog.cpp \
+    shaftenddialog.cpp \
+    shafttool.cpp \
     detailviewsetupdialog.cpp \
     subwindowfloatcontroller.cpp
 
@@ -566,6 +571,11 @@ HEADERS += \
     insulationtool.h \
     stairsymboldata.h \
     detailviewtool.h \
+    shaftbuilder.h \
+    shaftdata.h \
+    shaftdialog.h \
+    shaftenddialog.h \
+    shafttool.h \
     detailregiondata.h \
     detailviewsetupdialog.h \
     subwindowfloatcontroller.h
