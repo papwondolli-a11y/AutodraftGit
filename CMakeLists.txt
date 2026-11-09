@@ -194,6 +194,8 @@ set(SOURCES
     dimmovetexttool.cpp
     dimmergetool.cpp
     dimsplittool.cpp
+    dimbasereftool.cpp
+    dimflipsidetool.cpp
     modifyentitycommand.cpp
     severtool.cpp
     cadpicker.cpp
@@ -481,6 +483,8 @@ set(HEADERS
     dimmovetexttool.h
     dimmergetool.h
     dimsplittool.h
+    dimbasereftool.h
+    dimflipsidetool.h
     modifyentitycommand.h
     severtool.h
     cadpicker.h

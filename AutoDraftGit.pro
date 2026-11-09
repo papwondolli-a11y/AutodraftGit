@@ -34,6 +34,8 @@ SOURCES += \
     dimmovetexttool.cpp \
     dimmergetool.cpp \
     dimsplittool.cpp \
+    dimbasereftool.cpp \
+    dimflipsidetool.cpp \
     dimstylecommand.cpp \
     dimtexteditdialog.cpp \
     dimtextedittool.cpp \
@@ -309,6 +311,8 @@ HEADERS += \
     dimmovetexttool.h \
     dimmergetool.h \
     dimsplittool.h \
+    dimbasereftool.h \
+    dimflipsidetool.h \
     dimtexteditdialog.h \
     dimtextedittool.h \
     dimlineartool.h \

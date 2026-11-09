@@ -76,6 +76,8 @@
 #include "dimmovetexttool.h"
 #include "dimmergetool.h"
 #include "dimsplittool.h"
+#include "dimbasereftool.h"
+#include "dimflipsidetool.h"
 #include "severtool.h"
 #include "parallelcentertool.h"
 #include "boxcentertool.h"
@@ -459,6 +461,12 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   });
   factory.registerCommand("draw.dimSplit", [](IAppContext *c) {
       return new ToolCommand<DimSplitTool>(c);
+  });
+  factory.registerCommand("draw.dimBaseRef", [](IAppContext *c) {
+      return new ToolCommand<DimBaseRefTool>(c);
+  });
+  factory.registerCommand("draw.dimFlipSide", [](IAppContext *c) {
+      return new ToolCommand<DimFlipSideTool>(c);
   });
 
   // [GDT 추가] 기하공차 프레임 도구 등록
@@ -1086,6 +1094,22 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                      QStringLiteral("dsp"));
     mgr->registerCommand(factory.createCommand("draw.dimSplit", ctx), info,
                          "dimsplit");
+  }
+
+  {
+    CommandInfo info(QStringLiteral("tab.dimension.dimbaseref"), tr(" 치수선 "),
+                     tr("치수기준"), QString(":/icons/dimbas.png"),
+                     QStringLiteral("dbr"));
+    mgr->registerCommand(factory.createCommand("draw.dimBaseRef", ctx), info,
+                         "dimbaseref");
+  }
+
+  {
+    CommandInfo info(QStringLiteral("tab.dimension.dimflipside"), tr(" 치수선 "),
+                     tr("치수 반대면"), QString(":/icons/dimaligne.png"),
+                     QStringLiteral("dfs"));
+    mgr->registerCommand(factory.createCommand("draw.dimFlipSide", ctx), info,
+                         "dimflipside");
   }
 
   {
