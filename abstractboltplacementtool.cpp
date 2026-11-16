@@ -13,6 +13,7 @@
 #include <QUndoStack>
 #include <QKeyEvent>
 #include <QPen>
+#include <QTimer>
 #include <QtMath>
 #include <algorithm>
 
@@ -36,6 +37,11 @@ void AbstractBoltPlacementTool::cancelTool() {
     emit toolFinished();
 }
 
+void AbstractBoltPlacementTool::cancelActivation() {
+    m_cancelled = true;
+    QTimer::singleShot(0, this, &AbstractBoltPlacementTool::cancelTool);
+}
+
 void AbstractBoltPlacementTool::showPositionPrompt() {
     IAppContext *ctx = getContext();
     if (ctx && ctx->commandDock()) {
@@ -50,6 +56,7 @@ void AbstractBoltPlacementTool::abortCurrentPlacement() {
 }
 
 void AbstractBoltPlacementTool::keyPress(QKeyEvent *event) {
+    if (m_cancelled) return;
     if (event->key() == Qt::Key_Escape ||
         event->key() == Qt::Key_Return ||
         event->key() == Qt::Key_Enter ||
@@ -71,6 +78,7 @@ void AbstractBoltPlacementTool::keyPress(QKeyEvent *event) {
 }
 
 bool AbstractBoltPlacementTool::processCommand(const QString &command) {
+    if (m_cancelled) return true;
     if (m_state == WaitAngle) {
         QString trimmed = command.trimmed();
         if (trimmed.isEmpty()) {
@@ -89,7 +97,7 @@ bool AbstractBoltPlacementTool::processCommand(const QString &command) {
 }
 
 void AbstractBoltPlacementTool::mousePress(QPointF pos, Qt::MouseButton button) {
-    if (!m_scene) return;
+    if (!m_scene || m_cancelled) return;
 
     if (button == Qt::RightButton) {
         if (m_state == WaitPosition) {
@@ -130,7 +138,7 @@ void AbstractBoltPlacementTool::mousePress(QPointF pos, Qt::MouseButton button) 
 }
 
 void AbstractBoltPlacementTool::mouseMove(QPointF pos) {
-    if (!m_scene) return;
+    if (!m_scene || m_cancelled) return;
 
     IAppContext *ctx = getContext();
     QPointF finalPos = pos;

@@ -33,7 +33,7 @@ void HBBoltTool::activate(MyGraphicsScene *scene) {
                             savedTwoPointMode, savedCenterline, savedSideView);
 
     if (dlg.exec() != QDialog::Accepted) {
-        emit toolFinished();
+        cancelActivation();
         return;
     }
 

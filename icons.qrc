@@ -220,5 +220,6 @@
         <file>icons/dimmerge.png</file>
         <file>icons/dimsplit.png</file>
         <file>icons/shaft.png</file>
+        <file>icons/deepgroovebearing.png</file>
     </qresource>
 </RCC>

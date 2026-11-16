@@ -30,6 +30,7 @@ private:
     SurfaceFinishData m_pendingData;
     State             m_state;
     QList<MyVector>   m_pts;
+    bool              m_cancelled = false; // 설정창에서 취소됨 → 아무것도 그리지 않고 종료 대기
 };
 
 #endif // SURFACEFINISHTOOL_H

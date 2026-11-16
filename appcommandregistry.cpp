@@ -101,7 +101,11 @@
 #include "ellipsetool.h"
 #include "detailviewtool.h"
 #include "shafttool.h"
+#include "deepgroovebearingtool.h"
 
+static CommandBase *createDeepGrooveBearingCommand(IAppContext *c) {
+  return new ToolCommand<DeepGrooveBearingTool>(c);
+}
 
 AppCommandRegistry::AppCommandRegistry(QObject *parent) : QObject(parent) {}
 
@@ -310,6 +314,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   factory.registerCommand("mechtools.shaft", [](IAppContext *c) {
     return new ToolCommand<ShaftTool>(c);
   });
+  factory.registerCommand("mechtools.deepgroovebearing", createDeepGrooveBearingCommand);
   factory.registerCommand("modify.detailview", [](IAppContext *c) {
     return new ToolCommand<DetailViewTool>(c);
   });
@@ -1803,6 +1808,15 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                      tr("   축   "), QString(":/icons/shaft.png"), QStringLiteral("shaft"));
     mgr->registerCommand(factory.createCommand("mechtools.shaft", ctx), info,
                          QStringLiteral("shaft"));
+  }
+
+  // 탭바 기계 Tools — 깊은 홈 볼베어링: 호칭번호(693~6940) 선택 → 단면도·치수 자동 생성
+  {
+    CommandInfo info(QStringLiteral("tab.mechtools.deepgroovebearing"), tr("기계 Tools"),
+                     tr("깊은홈볼베어링"), QString(":/icons/deepgroovebearing.png"),
+                     QStringLiteral("dgbearing"));
+    mgr->registerCommand(factory.createCommand("mechtools.deepgroovebearing", ctx), info,
+                         QStringLiteral("dgbearing"));
   }
 
   {

@@ -66,6 +66,9 @@ protected:
     void placeItemAndReset(double angleDeg, double lengthOverride = -1.0);
 
     void cancelTool();
+    // 설정창에서 취소했을 때 activate() 안에서 호출한다. activate() 시점에는 toolFinished 가
+    // 아직 연결 전이라 바로 emit 하면 무시되고 툴이 살아남는다 → 입력을 막고 종료를 이벤트 루프로 미룬다.
+    void cancelActivation();
     void abortCurrentPlacement();
     void showPositionPrompt();
 
@@ -79,6 +82,7 @@ protected:
 
     State   m_state;
     QPointF m_origin; // 삽입 기준점
+    bool    m_cancelled = false; // 설정창에서 취소됨 → 아무것도 하지 않고 종료 대기
 };
 
 #endif // ABSTRACTBOLTPLACEMENTTOOL_H

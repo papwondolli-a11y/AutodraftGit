@@ -12,6 +12,7 @@
 #include <QUndoStack>
 #include <QKeyEvent>
 #include <QPen>
+#include <QTimer>
 #include <QtMath>
 
 // 3-2: 도구 기본값은 ToolDefaults(도면 스코프 우선). 네임스페이스 "SurfaceFinishTool".
@@ -42,7 +43,10 @@ void SurfaceFinishTool::activate(MyGraphicsScene *scene) {
     dlg.setData(initData);
 
     if (dlg.exec() != QDialog::Accepted) {
-        emit toolFinished();
+        // 취소: activate 시점엔 toolFinished 가 아직 연결 전이라 바로 emit 하면 무시된다.
+        // 입력을 막고 이벤트 루프로 종료를 미룬다.
+        m_cancelled = true;
+        QTimer::singleShot(0, this, &SurfaceFinishTool::cancelTool);
         return;
     }
 
@@ -90,6 +94,7 @@ void SurfaceFinishTool::abortCurrentPlacement() {
 }
 
 void SurfaceFinishTool::keyPress(QKeyEvent *event) {
+    if (m_cancelled) return;
     if (event->key() == Qt::Key_Escape ||
         event->key() == Qt::Key_Return ||
         event->key() == Qt::Key_Enter ||
@@ -121,6 +126,7 @@ void SurfaceFinishTool::keyPress(QKeyEvent *event) {
 }
 
 bool SurfaceFinishTool::processCommand(const QString &command) {
+    if (m_cancelled) return true;
     if (m_state == WaitAngle) {
         QString trimmed = command.trimmed();
         if (trimmed.isEmpty()) {
@@ -138,7 +144,7 @@ bool SurfaceFinishTool::processCommand(const QString &command) {
 }
 
 void SurfaceFinishTool::mousePress(QPointF pos, Qt::MouseButton button) {
-    if (!m_scene) return;
+    if (!m_scene || m_cancelled) return;
 
     if (button == Qt::RightButton) {
         if (m_state == WaitStartPoint) {
@@ -202,7 +208,7 @@ void SurfaceFinishTool::mousePress(QPointF pos, Qt::MouseButton button) {
 }
 
 void SurfaceFinishTool::mouseMove(QPointF pos) {
-    if (!m_scene) return;
+    if (!m_scene || m_cancelled) return;
 
     IAppContext *ctx = getContext();
     QPointF finalPos = pos;

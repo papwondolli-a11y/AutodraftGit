@@ -296,6 +296,9 @@ set(SOURCES
     shaftdialog.cpp
     shaftenddialog.cpp
     shafttool.cpp
+    deepgroovebearingdata.cpp
+    deepgroovebearingdialog.cpp
+    deepgroovebearingtool.cpp
     detailviewsetupdialog.cpp
 )
 
@@ -591,6 +594,9 @@ set(HEADERS
     shaftdialog.h
     shaftenddialog.h
     shafttool.h
+    deepgroovebearingdata.h
+    deepgroovebearingdialog.h
+    deepgroovebearingtool.h
     detailregiondata.h
     detailviewsetupdialog.h
 )

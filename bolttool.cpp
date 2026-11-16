@@ -36,7 +36,7 @@ void BoltTool::activate(MyGraphicsScene *scene) {
                             savedSideView);
 
     if (dlg.exec() != QDialog::Accepted) {
-        emit toolFinished();
+        cancelActivation();
         return;
     }
 
