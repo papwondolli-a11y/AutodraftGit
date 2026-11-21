@@ -17,6 +17,7 @@
 struct ShaftKeywayShape {
     std::vector<MyVector> pts;
     std::vector<double>   bulges;
+    bool                  closed = false;  // 막힌 키홈(양끝 반원)은 닫힌 폴리라인
 };
 
 struct ShaftGeometry {
@@ -45,14 +46,28 @@ public:
 
     // 입력 문제 목록 (비어 있으면 정상)
     static QStringList validate(const ShaftParams &params);
+    // 키홈 하나의 입력 문제 (index = 구간 번호 0~, segCount = 구간 수) — 키홈 설정창에서도 사용
+    //   chamferLeft/Right = 그 구간의 좌/우 모따기 (왼쪽/오른쪽 면 기준 막힌 키홈은 모따기만큼 안쪽에서 잰다)
+    static QStringList validateKeyway(const ShaftKeyway &k, int index, int segCount,
+                                      double diameter, double segLength,
+                                      double chamferLeft = 0.0, double chamferRight = 0.0);
+    // 기준면 모따기 때문에 키홈이 안쪽으로 밀리는 양 (막힘 + 왼쪽/오른쪽 면 기준일 때만, 그 외 0)
+    static double keywayChamferShift(const ShaftKeyway &k, double chamferLeft, double chamferRight);
+
+    // 구간 index 의 키홈 x 범위 [sa, sb] (축 좌표: 왼쪽 끝면 = 0). openL/openR = 축 끝면으로 열림.
+    // 키홈이 없으면 false. 2D·3D 공용.
+    static bool keywaySpan(const ShaftParams &params, int index, double &sa, double &sb,
+                           bool &openL, bool &openR);
 
     // 고스트 미리보기용 경로 (외형 + 모따기선 + 중심선)
     static QPainterPath buildPath(const ShaftParams &params, const QPointF &origin);
 
+    // 나사부 끝에 나사 높이만큼 모따기를 넣은 실제 외형 파라미터 (2D 외형·3D 회전체 공용)
+    static ShaftParams withThreadChamfers(const ShaftParams &params);
+
 private:
     static std::vector<MyVector> buildOutline(const ShaftParams &params, const QPointF &origin,
                                               QList<QLineF> &edgeLines);
-    static ShaftParams withThreadChamfers(const ShaftParams &params);
     static void buildEnds(const ShaftParams &params, const QPointF &origin, ShaftGeometry &g);
     static void buildDiameterDims(const ShaftParams &params, const QPointF &origin,
                                   QList<MyDimension> &out);

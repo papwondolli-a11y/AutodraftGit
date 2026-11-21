@@ -27,6 +27,12 @@ public:
   QColor printColor() const;
   bool hasPrintColorOverride() const;
 
+  // [3D/물량/단면] 레이어 높이 정보 (mm)
+  //  elevation: 이 레이어 객체의 바닥면 Z (예: 창대 900)
+  //  height   : elevation 에서 위로 솟는 높이 (예: 벽 2400, 0 = 높이 없음/평면 요소)
+  double elevation() const;
+  double height() const;
+
   // Setters (QObject가 아니므로 일반 public 함수로 사용)
   void setCurrent(bool);
   void setName(const QString &);
@@ -41,6 +47,10 @@ public:
   void setPrintColor(const QColor &color);
   void clearPrintColorOverride();
 
+  // [3D/물량/단면] 레이어 높이 정보 지정 (mm)
+  void setElevation(double v);
+  void setHeight(double v);
+
 private:
   bool m_current;
   QString m_name;
@@ -51,6 +61,8 @@ private:
   bool m_plotOn;
   bool m_layerLock;
   QColor m_printColor; // invalid(QColor()) = 오버라이드 없음(자동 규칙 사용)
+  double m_elevation;  // 바닥면 Z (mm), 기본 0
+  double m_height;     // 높이 (mm), 기본 0
 };
 
 #endif // LAYER_H

@@ -14,6 +14,11 @@
 #include "shaftdialog.h"
 #include "snapmanager.h"
 #include "tooldefaults.h"
+#include "mechparttag.h"
+#include "scenesymbolregistry.h"
+
+#include <QUuid>
+#include <algorithm>
 
 #include <QKeyEvent>
 #include <QPen>
@@ -32,8 +37,26 @@ ShaftTool::ShaftTool(QObject *parent)
     : AbstractTool(parent)
 {}
 
+bool        ShaftTool::s_headless = false;
+ShaftParams ShaftTool::s_headlessParams;
+
+void ShaftTool::setHeadlessParams(const ShaftParams &params) {
+    s_headlessParams = params;
+    s_headless = true;
+}
+
+void ShaftTool::clearHeadless() {
+    s_headless = false;
+}
+
 void ShaftTool::activate(MyGraphicsScene *scene) {
     AbstractTool::activate(scene);
+
+    if (s_headless) {               // 자동 배치: 설정창·기본값 저장 없이 바로 위치 입력 단계
+        m_params = s_headlessParams;
+        showPositionPrompt();
+        return;
+    }
 
     // 마지막으로 사용한 값을 다이얼로그 초기값으로 복원한다(없으면 예시 축).
     ToolDefaults defaults(kToolNamespace, scene);
@@ -146,11 +169,20 @@ void ShaftTool::placeAt(const QPointF &origin) {
     QUndoStack *undo = ctx->undoStack();
     if (undo) undo->beginMacro(tr("축"));
 
-    finalizeItem(ef->createPolyline(geo.outline, true, bodyPen), bodyLayer);
+    // [3D 기계용] 파라미터를 심볼 레지스트리에 저장하고 외형선에 부품 UUID 를 붙인다.
+    //   외형을 옮기면 기준점(외형 최소 좌표) 차이만큼 3D 도 따라간다.
+    QGraphicsItem *outlineItem = ef->createPolyline(geo.outline, true, bodyPen);
+    if (outlineItem) {
+        QMap<QString, QVariant> props;
+        props[QStringLiteral("Params")] = m_params.toJsonString();
+        MechPartTag::registerPart(m_scene, undo, outlineItem, QStringLiteral("MechShaft"), tr("축"),
+                                  props, origin, 0.0);
+    }
+    finalizeItem(outlineItem, bodyLayer);
     for (int i = 0; i < geo.edgeLines.size(); ++i)
         finalizeItem(ef->createLine(geo.edgeLines.at(i), bodyPen), bodyLayer);
     for (int i = 0; i < geo.keyways.size(); ++i)
-        finalizeItem(ef->createPolyline(geo.keyways.at(i).pts, false, bodyPen, geo.keyways.at(i).bulges),
+        finalizeItem(ef->createPolyline(geo.keyways.at(i).pts, geo.keyways.at(i).closed, bodyPen, geo.keyways.at(i).bulges),
                      bodyLayer);
     for (int i = 0; i < geo.breakLines.size(); ++i)
         finalizeItem(ef->createPolyline(geo.breakLines.at(i).pts, false, bodyPen), bodyLayer);

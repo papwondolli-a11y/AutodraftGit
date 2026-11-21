@@ -7,6 +7,8 @@
 #include <QString>
 #include <QPainterPath>
 #include <QList>
+#include <QMap>
+#include <QVariant>
 
 class QGraphicsItem;
 
@@ -54,6 +56,11 @@ protected:
     virtual QString positionPromptText() const = 0;
     // undo 매크로에 붙일 짧은 라벨 (예: "볼트 배치").
     virtual QString toolMacroLabel() const = 0;
+
+    // [3D 기계용] 3D 파라미터를 남길 부품이면 true 와 종류·이름·값을 돌려준다 (기본: 3D 없음).
+    //   배치 때 외형선 하나(기준 도형)에 부품 UUID 가 붙고 레지스트리에 저장된다 (MechPartTag).
+    virtual bool mechPartInfo(double length, QString &type, QString &namePrefix,
+                              QMap<QString, QVariant> &props) const;
 
     // activate() 맨 끝에서 호출 — 상태를 WaitPosition으로 되돌리고, logMessage가 비어있지
     // 않으면 커맨드독에 로그를 남긴 뒤 기준점 입력 프롬프트를 띄운다. logMessage는 보통

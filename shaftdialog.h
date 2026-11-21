@@ -12,13 +12,14 @@ class QPushButton;
 class QDoubleSpinBox;
 class QLabel;
 class QTableWidget;
+class QTableWidgetItem;
 
 // ─────────────────────────────────────────────────────────────────────────
 // ShaftDialog — 축(Shaft) 툴의 치수 입력 다이얼로그
 //
 // 표의 한 행이 축의 한 구간(왼쪽 끝 → 오른쪽 끝 순서).
-//   열: 지름 / 길이 / 끼워맞춤 / 좌 모따기 / 우 모따기 / 지름치수 / 길이치수
-// 아래에 중심선·치수 생성 옵션과 치수선 간격을 둔다.
+//   열: 지름 / 길이 / 끼워맞춤 / 좌 모따기 / 우 모따기 / 지름치수 / 공차표시 / 길이치수 / 키홈
+// 아래에 나사부(없음/왼쪽/오른쪽/양쪽), 중심선·치수 생성 옵션과 치수선 간격을 둔다.
 // ─────────────────────────────────────────────────────────────────────────
 class ShaftDialog : public QDialog {
     Q_OBJECT
@@ -37,11 +38,12 @@ private slots:
     void moveUp();
     void moveDown();
     void loadSample();
+    void savePresetData();
+    void loadPresetData();
     void updateTotal();
-    void onLeftEndChanged(int index);
-    void onRightEndChanged(int index);
-    void editLeftEnd();
-    void editRightEnd();
+    void onThreadSideChanged(int index);
+    void editThread();
+    void onItemChanged(QTableWidgetItem *item);
     void onCellDoubleClicked(int row, int col);
     void editLengthTolerance(int row);
 
@@ -50,20 +52,18 @@ private:
     void appendRow(const ShaftSegment &seg);
     void swapRows(int a, int b);
     QString cellText(int row, int col) const;
-    // side: 0=왼쪽 끝, 1=오른쪽 끝
-    ShaftEnd &endRef(int side) { return side == 0 ? m_leftEnd : m_rightEnd; }
-    QComboBox *comboRef(int side) const { return side == 0 ? m_leftCombo : m_rightCombo; }
-    QPushButton *editBtnRef(int side) const { return side == 0 ? m_leftEdit : m_rightEdit; }
-    void changeEnd(int side, int index);
-    bool editEnd(int side);
-    void syncEndWidgets(int side);
+    bool editThreadSizes();
+    void syncThreadWidgets();
+    // 키홈 칸: 값은 아이템 데이터(JSON)에 두고, 체크=사용, 글자=열림/막힘
+    bool editKeyway(int row);
+    ShaftKeyway rowKeyway(int row) const;
+    void storeKeyway(int row, const ShaftKeyway &k);
 
-    ShaftEnd        m_leftEnd;
-    ShaftEnd        m_rightEnd;
-    QComboBox      *m_leftCombo;
-    QComboBox      *m_rightCombo;
-    QPushButton    *m_leftEdit;
-    QPushButton    *m_rightEdit;
+    ShaftThreadSide m_threadSide = ShaftThreadSide::None;
+    ShaftThread     m_leftThread;
+    ShaftThread     m_rightThread;
+    QComboBox      *m_threadCombo;
+    QPushButton    *m_threadEdit;
     QTableWidget   *m_table;
     QLabel         *m_totalLabel;
     QCheckBox      *m_centerLine;

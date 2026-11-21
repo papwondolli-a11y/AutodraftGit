@@ -56,17 +56,31 @@ public:
 
     // 씬과 무관한 순수 도형 계산 (origin = 베어링 중심)
     static BearingGeometry build(const DeepGrooveBearingParams &params, const QPointF &origin);
-    static QPainterPath buildPath(const DeepGrooveBearingParams &params, const QPointF &origin);
+    static QPainterPath buildPath(const DeepGrooveBearingParams &params, const QPointF &origin, double angleDeg = 0.0);
+
+    // MCP 등 자동 배치: 설정되어 있으면 activate 에서 설정창 없이 이 값을 쓴다
+    static void setHeadlessParams(const DeepGrooveBearingParams &params);
+    static void clearHeadless();
 
 private:
+    static bool                    s_headless;
+    static DeepGrooveBearingParams s_headlessParams;
+
     void showPositionPrompt();
     void placeAt(const QPointF &origin);
     void finishTool();
+    void startAngleStep(const QPointF &origin);   // 기준점 확정 -> 회전 각도 입력 단계
+    void finishAngleStep(double angleDeg);
+    void cancelAngleStep();
+    double angleFromPoint(const QPointF &p) const;
     void ensureLayer(IAppContext *ctx, const QString &name, const QColor &color,
                      const QString &linetype);
     QGraphicsItem *finalizeItem(QGraphicsItem *item, const QString &layer);
 
     DeepGrooveBearingParams m_params;
+    bool m_awaitAngle = false;   // 기준점 클릭 후 회전 각도 대기 중
+    QPointF m_baseOrigin;
+    double m_angleDeg = 0.0;
     bool m_cancelled = false;   // 설정창에서 취소됨 → 아무것도 그리지 않고 종료 대기
 };
 

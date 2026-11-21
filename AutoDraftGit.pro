@@ -120,6 +120,15 @@ SOURCES += \
     layercomboboxmanager.cpp \
     layermanager.cpp \
     layertableview.cpp \
+    layer3ddialog.cpp \
+    openingheights.cpp \
+    buildingmodel3d.cpp \
+    model3dview.cpp \
+    model3dwindow.cpp \
+    model3dmesh.cpp \
+    model3dexport.cpp \
+    mechmodel3d.cpp \
+    mechparttag.cpp \
     mdicontroller.cpp \
     lineitem.cpp \
     linetool.cpp \
@@ -250,6 +259,31 @@ SOURCES += \
     fittolerancecalculator.cpp \
     dwgexporter.cpp \
     acadrustimporter.cpp \
+    deepgroovebearingdata.cpp \
+    deepgroovebearingdialog.cpp \
+    deepgroovebearingtool.cpp \
+    taperedrollerbearingdata.cpp \
+    taperedrollerbearingdialog.cpp \
+    taperedrollerbearingtool.cpp \
+    thrustbearingdata.cpp \
+    thrustbearingdialog.cpp \
+    thrustbearingtool.cpp \
+    revolveprofile.cpp \
+    revolvebodydialog.cpp \
+    revolvebodytool.cpp \
+    projectionview.cpp \
+    projectionviewtool.cpp \
+    extrudefeature.cpp \
+    extrudetool.cpp \
+    depthmovetool.cpp \
+    mech3dviewtool.cpp \
+    holefeature.cpp \
+    shaftbuilder.cpp \
+    shaftdata.cpp \
+    shaftdialog.cpp \
+    shaftenddialog.cpp \
+    shaftpresetdialog.cpp \
+    shafttool.cpp \
     notimplementedcommand.cpp \
     mechpartstandards.cpp \
     mechpartsjsonloader.cpp \
@@ -264,6 +298,8 @@ SOURCES += \
     hbbolttool.cpp \
     hbboltsetupdialog.cpp \
     boltpickerdialog.cpp \
+    bearingpickerdialog.cpp \
+    bearinglayer.cpp \
     polygontool.cpp \
     stairplantool.cpp \
     stairplandialog.cpp \
@@ -277,14 +313,6 @@ SOURCES += \
     ribtool.cpp \
     insulationtool.cpp \
     detailviewtool.cpp \
-    shaftbuilder.cpp \
-    shaftdata.cpp \
-    shaftdialog.cpp \
-    shaftenddialog.cpp \
-    shafttool.cpp \
-    deepgroovebearingdata.cpp \
-    deepgroovebearingdialog.cpp \
-    deepgroovebearingtool.cpp \
     detailviewsetupdialog.cpp \
     subwindowfloatcontroller.cpp
 
@@ -366,7 +394,6 @@ HEADERS += \
     holeptool.h \
     holecalloutformatter.h \
     holecalloutlink.h \
-    holedata.h \
     holesync.h \
     aibridgeserver.h \
     holecallouttool.h \
@@ -409,6 +436,16 @@ HEADERS += \
     layercomboboxmanager.h \
     layermanager.h \
     layertableview.h \
+    layer3ddialog.h \
+    openingheights.h \
+    buildingmodel3d.h \
+    model3dview.h \
+    model3dwindow.h \
+    model3dmesh.h \
+    model3dexport.h \
+    mechmodel3d.h \
+    mechpartdata.h \
+    mechparttag.h \
     mdicontroller.h \
     lineitem.h \
     hairlinepen.h \
@@ -550,6 +587,32 @@ HEADERS += \
     fittolerancecalculator.h \
     dwgexporter.h \
     acadrustimporter.h \
+    deepgroovebearingdata.h \
+    deepgroovebearingdialog.h \
+    deepgroovebearingtool.h \
+    taperedrollerbearingdata.h \
+    taperedrollerbearingdialog.h \
+    taperedrollerbearingtool.h \
+    thrustbearingdata.h \
+    bearingrotation.h \
+    thrustbearingdialog.h \
+    thrustbearingtool.h \
+    revolveprofile.h \
+    revolvebodydialog.h \
+    revolvebodytool.h \
+    projectionview.h \
+    projectionviewtool.h \
+    extrudefeature.h \
+    extrudetool.h \
+    depthmovetool.h \
+    mech3dviewtool.h \
+    holefeature.h \
+    shaftbuilder.h \
+    shaftdata.h \
+    shaftdialog.h \
+    shaftenddialog.h \
+    shaftpresetdialog.h \
+    shafttool.h \
     notimplementedcommand.h \
     mechpartstandards.h \
     mechpartsjsonloader.h \
@@ -564,6 +627,8 @@ HEADERS += \
     hbbolttool.h \
     hbboltsetupdialog.h \
     boltpickerdialog.h \
+    bearingpickerdialog.h \
+    bearinglayer.h \
     polygontool.h \
     stairplantool.h \
     stairplandialog.h \
@@ -578,14 +643,6 @@ HEADERS += \
     insulationtool.h \
     stairsymboldata.h \
     detailviewtool.h \
-    shaftbuilder.h \
-    shaftdata.h \
-    shaftdialog.h \
-    shaftenddialog.h \
-    shafttool.h \
-    deepgroovebearingdata.h \
-    deepgroovebearingdialog.h \
-    deepgroovebearingtool.h \
     detailregiondata.h \
     detailviewsetupdialog.h \
     subwindowfloatcontroller.h

@@ -39,6 +39,20 @@ CustomMenuBar::CustomMenuBar(QWidget *parent) : QMenuBar(parent) {
   makeMenu(tr("옵션"));
   QMenu *viewMenu = makeMenu(tr("보기"));
   QMenu *settingsMenu = makeMenu(tr("설정"));
+
+  // [3D 건축용] 레이어별 기준높이·높이 → 벽 돌출 3D (3D 보기·물량·단면용)
+  QMenu *layer3DMenu = makeMenu(tr("3D 건축용"));
+  layer3DMenu->addAction(tr("레이어 높이 설정..."), this,
+                         &CustomMenuBar::layer3DRequested);
+  layer3DMenu->addAction(tr("3D 보기"), this,
+                         &CustomMenuBar::model3DViewRequested);
+  layer3DMenu->addAction(tr("3D 모델 검사..."), this,
+                         &CustomMenuBar::model3DCheckRequested);
+
+  // [3D 기계용] 기계 Tools 가 저장한 파라미터로 만드는 부품 3D (축 …)
+  QMenu *mech3DMenu = makeMenu(tr("3D 기계용"));
+  mech3DMenu->addAction(tr("부품 3D 보기"), this,
+                        &CustomMenuBar::mechModel3DViewRequested);
   QMenu *helpMenu = makeMenu(tr("도움말"));
 
   helpMenu->addAction(tr("사용자 매뉴얼"), this, &CustomMenuBar::onOpenUserManual);

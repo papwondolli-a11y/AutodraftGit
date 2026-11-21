@@ -1,3 +1,8 @@
+#include "revolveprofile.h"
+#include <QUuid>
+#include "projectionview.h"
+#include "extrudefeature.h"
+#include "depthmovetool.h"
 #include "aibridgeserver.h"
 #include "blockitem.h"
 #include "cadcommands.h"
@@ -17,6 +22,13 @@
 #include "myline.h"
 #include "stairplantool.h"
 #include "elevatortool.h"
+#include "bolttool.h"
+#include "holetool.h"
+#include "holeptool.h"
+#include "holesectiontool.h"
+#include "holeitem.h"
+#include "myhole.h"
+#include "mechpartstandards.h"
 #include "drawsubwindow.h"
 #include "filecommands.h"
 #include "filemanager.h"
@@ -56,6 +68,17 @@
 #include "multilinedata.h"
 #include "plandoortool.h"
 #include "planwindowtool.h"
+#include "openingheights.h"
+#include "buildingmodel3d.h"
+#include "model3dview.h"
+#include "model3dwindow.h"
+#include "model3dexport.h"
+#include "mechmodel3d.h"
+#include "shafttool.h"
+#include "deepgroovebearingtool.h"
+#include "deepgroovebearingdata.h"
+#include "shaftbuilder.h"
+#include "scenesymbolregistry.h"
 #include "plandoordoubletool.h"
 #include "plandoorbiswingtool.h"
 #include "plandoordoublebiswingtool.h"
@@ -266,6 +289,14 @@ QJsonObject AiBridgeServer::dispatchTool(const QJsonObject &req) {
     return toolCreateStair(args);
   if (tool == QLatin1String("create_elevator"))
     return toolCreateElevator(args);
+  if (tool == QLatin1String("create_bolt"))
+    return toolCreateBolt(args);
+  if (tool == QLatin1String("create_hole"))
+    return toolCreateHole(args);
+  if (tool == QLatin1String("create_hole_polar"))
+    return toolCreateHolePolar(args);
+  if (tool == QLatin1String("create_hole_section"))
+    return toolCreateHoleSection(args);
   if (tool == QLatin1String("create_door"))
     return toolCreateDoor(args);
   if (tool == QLatin1String("create_window"))
@@ -324,10 +355,32 @@ QJsonObject AiBridgeServer::dispatchTool(const QJsonObject &req) {
     return toolNewDrawing();
   if (tool == QLatin1String("undo"))
     return toolUndo();
+  if (tool == QLatin1String("set_layer_height"))
+    return toolSetLayerHeight(args);
+  if (tool == QLatin1String("get_model_3d"))
+    return toolGetModel3D(args);
+  if (tool == QLatin1String("view_3d"))
+    return toolView3D(args);
+  if (tool == QLatin1String("export_3d_obj"))
+    return toolExport3DObj(args);
+  if (tool == QLatin1String("create_shaft"))
+    return toolCreateShaft(args);
+  if (tool == QLatin1String("create_bearing"))
+    return toolCreateBearing(args);
+  if (tool == QLatin1String("create_revolve"))
+    return toolCreateRevolve(args);
+  if (tool == QLatin1String("create_projection"))
+    return toolCreateProjection(args);
+  if (tool == QLatin1String("regen_projections"))
+    return toolRegenProjections(args);
+  if (tool == QLatin1String("create_extrude"))
+    return toolCreateExtrude(args);
+  if (tool == QLatin1String("depth_move"))
+    return toolDepthMove(args);
 
   return fail(QStringLiteral("알 수 없는 도구입니다: '%1'. 사용 가능: ping, "
                              "get_layers, get_entities, create_line, "
-                             "create_circle, create_multiline, multiline_lcorner, multiline_tcorner, multiline_ccorner, create_stair, create_elevator, create_door, create_window, create_room, create_core, set_drawing_scale, list_blocks, insert_block, create_dimension, build_plan, set_group, delete_group, get_plan, screenshot, new_drawing, open_drawing, undo")
+                             "create_circle, create_multiline, multiline_lcorner, multiline_tcorner, multiline_ccorner, create_stair, create_elevator, create_bolt, create_door, create_window, create_room, create_core, set_drawing_scale, list_blocks, insert_block, create_dimension, build_plan, set_group, delete_group, get_plan, screenshot, new_drawing, open_drawing, undo")
                   .arg(tool));
 }
 
@@ -364,6 +417,8 @@ QJsonObject AiBridgeServer::toolGetLayers() {
     o.insert(QStringLiteral("on"), layer.isLayerOn());
     o.insert(QStringLiteral("locked"), layer.isLayerLock());
     o.insert(QStringLiteral("current"), layer.isCurrent());
+    o.insert(QStringLiteral("elevation"), layer.elevation());
+    o.insert(QStringLiteral("height"), layer.height());
     layers.append(o);
   }
   QJsonObject result;
@@ -700,6 +755,477 @@ QJsonObject AiBridgeServer::toolCreateElevator(const QJsonObject &args) {
   return result;
 }
 
+// 육각볼트(KS B 1002) 정면도 기호(BoltTool). 기계부품 탭 볼트 툴과 같은 형상 알고리즘을 쓴다.
+//   at = 삽입 기준점(머리/몸통 경계선 중앙), angle = 볼트가 뻗어나가는 방향(도, 0 = +X)
+QJsonObject AiBridgeServer::toolCreateBolt(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+
+  const QString kind =
+      args.value(QStringLiteral("kind")).toString(QStringLiteral("hex"));
+  if (kind != QLatin1String("hex"))
+    return fail(QStringLiteral("kind 는 현재 'hex'(육각볼트)만 지원합니다."));
+
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at 은 볼트 삽입 기준점(머리/몸통 경계선 중앙) [x, y] "
+                               "입니다. 예: {\"at\":[0,0],\"diameter\":\"M20\","
+                               "\"length\":60,\"angle\":0}"));
+
+  // 호칭경 → 규격
+  ToolDefaults bd("BoltTool", scene);
+  const QString diameter = args.contains(QStringLiteral("diameter"))
+                               ? args.value(QStringLiteral("diameter")).toString().trimmed()
+                               : bd.getString("Diameter", "M10");
+  const QVector<HexBoltSize> &sizes = kKsB1002HexBolts();
+  int found = -1;
+  QStringList labels;
+  for (int i = 0; i < sizes.size(); ++i) {
+    labels << sizes.at(i).label;
+    if (found < 0 && sizes.at(i).label.compare(diameter, Qt::CaseInsensitive) == 0)
+      found = i;
+  }
+  if (found < 0)
+    return fail(QStringLiteral("호칭경 '%1' 규격이 없습니다. 사용 가능: %2")
+                    .arg(diameter, labels.join(QStringLiteral(", "))));
+  const HexBoltSize size = sizes.at(found);
+
+  const double length = args.contains(QStringLiteral("length"))
+                            ? args.value(QStringLiteral("length")).toDouble()
+                            : bd.getDouble("Length", 40.0);
+  if (length <= 0.0)
+    return fail(QStringLiteral("length(호칭길이 L, mm)는 0 보다 커야 합니다."));
+
+  const double angle = args.value(QStringLiteral("angle")).toDouble(0.0);
+  const bool fullThread = args.contains(QStringLiteral("fullThread"))
+                              ? args.value(QStringLiteral("fullThread")).toBool()
+                              : bd.getBool("FullThread", true);
+  const bool centerline = args.contains(QStringLiteral("centerline"))
+                              ? args.value(QStringLiteral("centerline")).toBool()
+                              : bd.getBool("CenterlineEnabled", true);
+  const bool sideView = args.contains(QStringLiteral("sideView"))
+                            ? args.value(QStringLiteral("sideView")).toBool()
+                            : bd.getBool("SideViewEnabled", true);
+  const QString outlineLayer = args.contains(QStringLiteral("outlineLayer"))
+                                   ? args.value(QStringLiteral("outlineLayer")).toString()
+                                   : bd.getString("OutlineLayer", "");
+  const QString threadLayer = args.contains(QStringLiteral("threadLayer"))
+                                  ? args.value(QStringLiteral("threadLayer")).toString()
+                                  : bd.getString("ThreadLayer", "");
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    BoltTool *tool = new BoltTool();
+    tool->setHeadlessParams(size, length, fullThread, centerline, sideView,
+                            outlineLayer, threadLayer);
+    m_ctx->startTool(tool);
+    tool->mousePress(at, Qt::LeftButton);                       // 기준점
+    tool->processCommand(QString::number(angle, 'f', 6));        // 방향 각도 → 배치
+    tool->mousePress(at, Qt::RightButton);                       // 툴 종료
+  }
+
+  QJsonObject result = newItemsResult(
+      scene, before,
+      QStringLiteral("볼트가 만들어지지 않았습니다. at, diameter, length 를 확인하세요."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used;
+  used.insert(QStringLiteral("kind"), kind);
+  used.insert(QStringLiteral("diameter"), size.label);
+  used.insert(QStringLiteral("length"), length);
+  used.insert(QStringLiteral("angle"), angle);
+  used.insert(QStringLiteral("headAcrossFlats"), size.s);
+  used.insert(QStringLiteral("headHeight"), size.k);
+  used.insert(QStringLiteral("threadLength"),
+              fullThread ? length : hexBoltThreadLength(size.d, length));
+  used.insert(QStringLiteral("fullThread"), fullThread);
+  used.insert(QStringLiteral("centerline"), centerline);
+  used.insert(QStringLiteral("sideView"), sideView);
+  used.insert(QStringLiteral("outlineLayer"), outlineLayer);
+  used.insert(QStringLiteral("threadLayer"), threadLayer);
+  result.insert(QStringLiteral("paramsUsed"), used);
+  return result;
+}
+
+// ---- 구멍(HoleTool / HolePTool / HoleSectionTool) -------------------------------------
+// 구멍 설정창(HoleDialog)과 같은 규칙으로 args 를 MyHole 로 만든다.
+//   diameter 생략 + thread 지정 → 탭드릴 지름(호칭지름 - 피치), 카운터보어/싱크 지름 생략 → 기본구멍 x 1.8,
+//   막힌 구멍 + 탭 → 탭 깊이 생략 시 depth - 4 x 피치.
+// 오류면 errMsg 를 채우고 false.
+static bool readHoleSpec(const QJsonObject &args, const QString &ns, MyGraphicsScene *scene,
+                         LayerManager *lm, MyHole &out, QString &errMsg) {
+  ToolDefaults hd(ns, scene);
+  MyHole d;
+
+  const bool threaded = args.contains(QStringLiteral("thread")) &&
+                        !args.value(QStringLiteral("thread")).toString().trimmed().isEmpty();
+  double pitch = 0.0;
+  if (threaded) {
+    d.isThreaded = true;
+    d.threadSpec = args.value(QStringLiteral("thread")).toString().trimmed();
+    double major = 0.0;
+    if (!MyHole::parseThreadSpec(d.threadSpec, major, pitch)) {
+      errMsg = QStringLiteral("thread '%1' 를 해석할 수 없습니다. 예: \"M10x1.5\"").arg(d.threadSpec);
+      return false;
+    }
+    d.threadClass = args.value(QStringLiteral("threadClass")).toString(QStringLiteral("6H"));
+    d.diameter = major - pitch; // 탭드릴 근사식(설정창과 동일)
+  }
+  if (args.contains(QStringLiteral("diameter")))
+    d.diameter = args.value(QStringLiteral("diameter")).toDouble();
+  if (d.diameter <= 0.0) {
+    errMsg = QStringLiteral("diameter(드릴 지름, mm)를 0 보다 크게 지정하세요. 탭 구멍이면 thread 만 줘도 됩니다.");
+    return false;
+  }
+
+  d.throughHole = args.value(QStringLiteral("through")).toBool(true);
+  if (!d.throughHole) {
+    d.depth = args.value(QStringLiteral("depth")).toDouble(0.0);
+    if (d.depth <= 0.0) {
+      errMsg = QStringLiteral("막힌 구멍(through:false)은 depth(깊이, mm)가 필요합니다.");
+      return false;
+    }
+    if (threaded) {
+      const double clearance = 4.0 * pitch;
+      d.threadDepth = args.contains(QStringLiteral("threadDepth"))
+                          ? args.value(QStringLiteral("threadDepth")).toDouble()
+                          : qMax(0.0, d.depth - clearance);
+      if (d.threadDepth > d.depth) {
+        errMsg = QStringLiteral("threadDepth 는 depth 보다 클 수 없습니다.");
+        return false;
+      }
+    }
+  }
+  d.toleranceClass = args.value(QStringLiteral("tolerance")).toString();
+
+  const QJsonValue cb = args.value(QStringLiteral("counterbore"));
+  if (cb.isObject()) {
+    const QJsonObject o = cb.toObject();
+    d.hasCounterbore = true;
+    d.cbDiameter = o.contains(QStringLiteral("diameter")) ? o.value(QStringLiteral("diameter")).toDouble()
+                                                          : d.diameter * 1.8;
+    d.cbDepth = o.value(QStringLiteral("depth")).toDouble(6.0);
+    if (d.cbDiameter <= d.diameter || d.cbDepth <= 0.0) {
+      errMsg = QStringLiteral("counterbore.diameter 는 구멍 지름보다 커야 하고 depth 는 0 보다 커야 합니다.");
+      return false;
+    }
+  }
+  const QJsonValue cs = args.value(QStringLiteral("countersink"));
+  if (cs.isObject()) {
+    const QJsonObject o = cs.toObject();
+    d.hasCountersink = true;
+    d.csDiameter = o.contains(QStringLiteral("diameter")) ? o.value(QStringLiteral("diameter")).toDouble()
+                                                          : d.diameter * 1.8;
+    d.csAngle = o.value(QStringLiteral("angle")).toDouble(90.0);
+    if (d.csDiameter <= d.diameter || d.csAngle <= 0.0 || d.csAngle >= 180.0) {
+      errMsg = QStringLiteral("countersink.diameter 는 구멍 지름보다 커야 하고 angle 은 0~180 사이여야 합니다.");
+      return false;
+    }
+  }
+
+  const QString rm = args.value(QStringLiteral("renderMode")).toString(QStringLiteral("full")).toLower();
+  if (rm == QLatin1String("right"))
+    d.renderMode = HoleRenderMode::Right;
+  else if (rm == QLatin1String("left"))
+    d.renderMode = HoleRenderMode::Left;
+  else if (rm == QLatin1String("full"))
+    d.renderMode = HoleRenderMode::Full;
+  else {
+    errMsg = QStringLiteral("renderMode 는 full | right | left 중 하나입니다.");
+    return false;
+  }
+
+  d.showCenterLine = args.contains(QStringLiteral("centerline"))
+                         ? args.value(QStringLiteral("centerline")).toBool()
+                         : hd.getBool("ShowCenterLine", true);
+
+  // 레이어: 지정하지 않으면 도면에 저장된 구멍 도구 기본값(없으면 현재 레이어)
+  const QJsonObject layers = args.value(QStringLiteral("layers")).toObject();
+  struct LayerField {
+    const char *key;
+    const char *dflt;
+    QString *dst;
+  };
+  const LayerField fields[] = {{"base", "BaseLayer", &d.baseLayer},
+                               {"thread", "ThreadLayer", &d.threadLayer},
+                               {"counterbore", "CbLayer", &d.cbLayer},
+                               {"countersink", "CsLayer", &d.csLayer}};
+  for (const LayerField &f : fields) {
+    const QString name = layers.contains(QLatin1String(f.key))
+                             ? layers.value(QLatin1String(f.key)).toString()
+                             : hd.getString(f.dflt, QString());
+    if (!name.isEmpty() && lm && !lm->getLayer(name)) {
+      errMsg = QStringLiteral("layers.%1 '%2' 레이어가 없습니다. get_layers 로 확인하세요.")
+                   .arg(QLatin1String(f.key), name);
+      return false;
+    }
+    *f.dst = name;
+  }
+  out = d;
+  return true;
+}
+
+static QJsonObject holeSpecJson(const MyHole &d) {
+  QJsonObject o;
+  o.insert(QStringLiteral("diameter"), d.diameter);
+  o.insert(QStringLiteral("through"), d.throughHole);
+  if (!d.throughHole)
+    o.insert(QStringLiteral("depth"), d.depth);
+  if (d.isThreaded) {
+    o.insert(QStringLiteral("thread"), d.threadSpec);
+    o.insert(QStringLiteral("threadClass"), d.threadClass);
+    if (!d.throughHole)
+      o.insert(QStringLiteral("threadDepth"), d.threadDepth);
+  }
+  if (!d.toleranceClass.isEmpty())
+    o.insert(QStringLiteral("tolerance"), d.toleranceClass);
+  if (d.hasCounterbore) {
+    QJsonObject c;
+    c.insert(QStringLiteral("diameter"), d.cbDiameter);
+    c.insert(QStringLiteral("depth"), d.cbDepth);
+    o.insert(QStringLiteral("counterbore"), c);
+  }
+  if (d.hasCountersink) {
+    QJsonObject c;
+    c.insert(QStringLiteral("diameter"), d.csDiameter);
+    c.insert(QStringLiteral("angle"), d.csAngle);
+    o.insert(QStringLiteral("countersink"), c);
+  }
+  o.insert(QStringLiteral("centerline"), d.showCenterLine);
+  return o;
+}
+
+// 구멍(HoleTool, "그리기" 탭 구멍). at 한 점(+X/Y 격자 배열) 또는 기준선 2개 + 오프셋으로 배치.
+QJsonObject AiBridgeServer::toolCreateHole(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+
+  MyHole data;
+  QString msg;
+  if (!readHoleSpec(args, QStringLiteral("HoleTool"), scene, m_ctx->layerManager(), data, msg))
+    return fail(msg);
+
+  const bool cornerMode = args.contains(QStringLiteral("refLine1")) ||
+                          args.contains(QStringLiteral("refLine2"));
+  QPointF at, ref1, ref2;
+  double offsetX = 0.0, offsetY = 0.0;
+  if (cornerMode) {
+    if (!readPoint(args.value(QStringLiteral("refLine1")), ref1) ||
+        !readPoint(args.value(QStringLiteral("refLine2")), ref2))
+      return fail(QStringLiteral("refLine1, refLine2 는 기준선 위의 점 [x, y] 입니다(그 점을 클릭해 선을 고릅니다). "
+                                 "예: {\"refLine1\":[500,0],\"refLine2\":[0,300],\"offsetX\":50,\"offsetY\":40}"));
+    offsetX = args.value(QStringLiteral("offsetX")).toDouble(0.0);
+    offsetY = args.value(QStringLiteral("offsetY")).toDouble(0.0);
+    if (offsetX == 0.0 && offsetY == 0.0)
+      return fail(QStringLiteral("기준선 모드는 offsetX 또는 offsetY(교차점에서 안쪽으로 떨어진 거리, mm)가 필요합니다."));
+    at = ref1;
+  } else if (!readPoint(args.value(QStringLiteral("at")), at)) {
+    return fail(QStringLiteral("at 은 구멍 중심 [x, y] 입니다. 예: {\"at\":[100,50],\"diameter\":10} "
+                               "또는 기준선 모드 {\"refLine1\":[..],\"refLine2\":[..],\"offsetX\":50,\"offsetY\":40}"));
+  }
+
+  const int countX = qMax(1, args.value(QStringLiteral("countX")).toInt(1));
+  const int countY = qMax(1, args.value(QStringLiteral("countY")).toInt(1));
+  const double spacingX = args.value(QStringLiteral("spacingX")).toDouble(0.0);
+  const double spacingY = args.value(QStringLiteral("spacingY")).toDouble(0.0);
+  if ((countX > 1 && spacingX == 0.0) || (countY > 1 && spacingY == 0.0))
+    return fail(QStringLiteral("countX/countY 가 2 이상이면 spacingX/spacingY(간격, mm)를 0 이 아닌 값으로 주세요."));
+  if (countX * countY > 500)
+    return fail(QStringLiteral("한 번에 만들 수 있는 구멍은 500개까지입니다."));
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    HoleTool *tool = new HoleTool();
+    tool->setHeadlessParams(data, offsetX, offsetY, countX, spacingX, countY, spacingY);
+    m_ctx->startTool(tool);
+    if (cornerMode) {
+      tool->mousePress(ref1, Qt::LeftButton);
+      tool->mousePress(ref2, Qt::LeftButton);
+    } else {
+      tool->mousePress(at, Qt::LeftButton);
+    }
+    tool->mousePress(at, Qt::RightButton); // 툴 종료
+  }
+
+  QJsonObject result = newItemsResult(
+      scene, before,
+      cornerMode ? QStringLiteral("구멍이 만들어지지 않았습니다. refLine1/refLine2 위치에 선이 있는지, "
+                                  "두 선이 평행하지 않은지 확인하세요.")
+                 : QStringLiteral("구멍이 만들어지지 않았습니다. at, diameter 를 확인하세요."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used = holeSpecJson(data);
+  used.insert(QStringLiteral("countX"), countX);
+  used.insert(QStringLiteral("countY"), countY);
+  if (countX > 1)
+    used.insert(QStringLiteral("spacingX"), spacingX);
+  if (countY > 1)
+    used.insert(QStringLiteral("spacingY"), spacingY);
+  if (cornerMode) {
+    used.insert(QStringLiteral("offsetX"), offsetX);
+    used.insert(QStringLiteral("offsetY"), offsetY);
+  }
+  result.insert(QStringLiteral("paramsUsed"), used);
+  return result;
+}
+
+// 구멍 P(HolePTool). anchor 에서 distance 만큼 떨어진 곳에 원형 배열. 또는 원/호 2개 선택(refCircle1/2).
+QJsonObject AiBridgeServer::toolCreateHolePolar(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+
+  MyHole data;
+  QString msg;
+  if (!readHoleSpec(args, QStringLiteral("HolePTool"), scene, m_ctx->layerManager(), data, msg))
+    return fail(msg);
+
+  const bool pickMode = args.contains(QStringLiteral("refCircle1")) ||
+                        args.contains(QStringLiteral("refCircle2"));
+  QPointF anchor, ref1, ref2;
+  double distance = 0.0;
+  if (pickMode) {
+    if (!readPoint(args.value(QStringLiteral("refCircle1")), ref1) ||
+        !readPoint(args.value(QStringLiteral("refCircle2")), ref2))
+      return fail(QStringLiteral("refCircle1, refCircle2 는 기준 원/호 위의 점 [x, y] 입니다(그 점을 클릭해 고릅니다). "
+                                 "기준점=두 중심의 중점, 거리=두 반지름의 평균(볼트서클). "
+                                 "예: {\"refCircle1\":[100,0],\"refCircle2\":[60,0],\"count\":6,\"diameter\":9}"));
+    anchor = ref1;
+  } else {
+    if (!readPoint(args.value(QStringLiteral("anchor")), anchor))
+      return fail(QStringLiteral("anchor 는 원형 배열 중심 [x, y] 입니다. 예: {\"anchor\":[0,0],\"distance\":50,"
+                                 "\"count\":6,\"diameter\":9} (또는 refCircle1/refCircle2 로 원 2개 선택)"));
+    distance = args.value(QStringLiteral("distance")).toDouble(0.0);
+    if (distance < 0.0 || (distance == 0.0 && args.value(QStringLiteral("count")).toInt(1) > 1))
+      return fail(QStringLiteral("distance(중심에서 구멍 중심까지 거리, mm)를 0 보다 크게 지정하세요."));
+  }
+
+  const double range = args.value(QStringLiteral("range")).toDouble(360.0);
+  const int count = qMax(1, args.value(QStringLiteral("count")).toInt(1));
+  if (range == 0.0 && count > 1)
+    return fail(QStringLiteral("range(배열 각도 범위, 도)는 0 이 아니어야 합니다. 기본 360."));
+  if (count > 500)
+    return fail(QStringLiteral("한 번에 만들 수 있는 구멍은 500개까지입니다."));
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    HolePTool *tool = new HolePTool();
+    tool->setHeadlessParams(data, distance, range, count);
+    m_ctx->startTool(tool);
+    if (pickMode) {
+      tool->processCommand(QStringLiteral("s"));
+      tool->mousePress(ref1, Qt::LeftButton);
+      tool->mousePress(ref2, Qt::LeftButton);
+    } else {
+      tool->mousePress(anchor, Qt::LeftButton);
+    }
+    tool->mousePress(anchor, Qt::RightButton); // 툴 종료
+  }
+
+  QJsonObject result = newItemsResult(
+      scene, before,
+      pickMode ? QStringLiteral("구멍이 만들어지지 않았습니다. refCircle1/refCircle2 위치에 원 또는 호가 있는지 확인하세요.")
+               : QStringLiteral("구멍이 만들어지지 않았습니다. anchor, distance, diameter 를 확인하세요."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used = holeSpecJson(data);
+  used.insert(QStringLiteral("range"), range);
+  used.insert(QStringLiteral("count"), count);
+  if (!pickMode)
+    used.insert(QStringLiteral("distance"), distance);
+  result.insert(QStringLiteral("paramsUsed"), used);
+  return result;
+}
+
+// 구멍 단면(HoleSectionTool). 이미 그려진 구멍(HoleItem)의 규격으로 단면 선들을 일반 선으로 만든다.
+QJsonObject AiBridgeServer::toolCreateHoleSection(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+
+  QPointF holePt, top;
+  if (!readPoint(args.value(QStringLiteral("hole")), holePt) ||
+      !readPoint(args.value(QStringLiteral("at")), top))
+    return fail(QStringLiteral("hole 은 단면으로 그릴 기존 구멍의 중심 [x, y], at 은 단면의 상단면 기준점 [x, y] 입니다. "
+                               "예: {\"hole\":[100,50],\"at\":[300,0],\"direction\":270,\"thickness\":20}"));
+  if (!args.contains(QStringLiteral("direction")))
+    return fail(QStringLiteral("direction 은 상단면에서 깊이(재료 안쪽) 방향의 각도(도, 0=+X, 90=+Y, 270=아래)입니다. "
+                               "예: 구멍이 위에서 아래로 뚫리면 270"));
+  const double angle = args.value(QStringLiteral("direction")).toDouble();
+  const double value = args.value(QStringLiteral("thickness")).toDouble(0.0);
+  const QString hidden = args.value(QStringLiteral("hiddenLayer")).toString();
+  if (!hidden.isEmpty() && !m_ctx->layerManager()->getLayer(hidden))
+    return fail(QStringLiteral("hiddenLayer '%1' 레이어가 없습니다. get_layers 로 확인하세요.").arg(hidden));
+
+  // 가장 가까운 구멍 찾기
+  HoleItem *best = nullptr;
+  double bestDist = 1e18;
+  int holeCount = 0;
+  const QList<QGraphicsItem *> items = scene->items();
+  for (int i = 0; i < items.size(); ++i) {
+    HoleItem *h = dynamic_cast<HoleItem *>(items.at(i));
+    if (!h)
+      continue;
+    ++holeCount;
+    const double dist = QLineF(h->holeData().position.toPointF(), holePt).length();
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = h;
+    }
+  }
+  if (!best)
+    return fail(QStringLiteral("도면에 구멍 객체(구멍 도구로 만든 것)가 없습니다. 먼저 create_hole 또는 "
+                               "create_hole_polar 로 구멍을 만드세요. 원(create_circle)은 구멍이 아닙니다."));
+  const double tol = qMax(1.0, best->holeData().outerRadius() * 1.5);
+  if (bestDist > tol)
+    return fail(QStringLiteral("hole 위치 근처에 구멍이 없습니다(가장 가까운 구멍까지 %1mm). "
+                               "get_entities 로 구멍 중심을 확인하세요. 구멍 수: %2")
+                    .arg(bestDist, 0, 'f', 1)
+                    .arg(holeCount));
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    HoleSectionTool *tool = new HoleSectionTool();
+    m_ctx->startTool(tool);
+    if (!tool->selectHoleHeadless(best, value, hidden)) {
+      tool->mousePress(top, Qt::RightButton);
+      return fail(QStringLiteral("구멍을 선택하지 못했습니다."));
+    }
+    const double rad = angle * M_PI / 180.0;
+    const QPointF dirPt(top.x() + 100.0 * std::cos(rad), top.y() + 100.0 * std::sin(rad));
+    tool->mousePress(top, Qt::LeftButton);   // 상단면 기준점
+    tool->mousePress(dirPt, Qt::LeftButton); // 깊이 방향 → 단면 생성
+    tool->mousePress(top, Qt::RightButton);  // 툴 종료
+  }
+
+  QJsonObject result = newItemsResult(
+      scene, before, QStringLiteral("단면이 만들어지지 않았습니다. hole, at, direction 을 확인하세요."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used = holeSpecJson(best->holeData());
+  QJsonArray center;
+  center.append(best->holeData().position.x);
+  center.append(best->holeData().position.y);
+  used.insert(QStringLiteral("holeCenter"), center);
+  used.insert(QStringLiteral("direction"), angle);
+  used.insert(QStringLiteral("thickness"),
+              best->holeData().throughHole ? (value > 0.0 ? value : best->holeData().diameter) : 0.0);
+  if (!hidden.isEmpty())
+    used.insert(QStringLiteral("hiddenLayer"), hidden);
+  result.insert(QStringLiteral("paramsUsed"), used);
+  return result;
+}
+
 // 문/창문 공통 입력 해석.
 //   hinge  = 벽면 위 시작점(P1, 문은 경첩 쪽 끝)
 //   toward = 문/창이 진행하는 방향의 점 (hinge 에서 toward 쪽으로 뻗는다)
@@ -865,7 +1391,14 @@ QJsonObject AiBridgeServer::toolCreateDoor(const QJsonObject &args) {
   if (hasWings && wings != 3 && wings != 4)
     return fail(QStringLiteral("wings(날개 수)는 3 또는 4 입니다."));
 
+  // [3D] 개구부 높이 (생략하면 도면 기본값: 문 0/2100)
+  double sillHeight = 0.0, openingHeight = 0.0;
+  bool hasSill = false, hasOpenH = false;
+  if (!readOpeningHeights(args, hasSill, sillHeight, hasOpenH, openingHeight, err))
+    return err;
+
   const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  const QList<QString> symBefore = scene->symbolRegistry()->allSymbols().keys();
   QJsonObject used;
   {
     SnapSuspender guard(m_ctx->snapManager());
@@ -965,9 +1498,11 @@ QJsonObject AiBridgeServer::toolCreateDoor(const QJsonObject &args) {
     }
     }
 
+    OpeningHeights::setOverride(hasSill, sillHeight, hasOpenH, openingHeight);
     tool->mousePress(p1, Qt::LeftButton);
     tool->mousePress(p2, Qt::LeftButton);
     tool->mousePress(p3, Qt::LeftButton);
+    OpeningHeights::clearOverride();
 
     // 이번 호출에서 바꾼 도구 설정을 원래대로 되돌린다
     switch (bk.family) {
@@ -1011,6 +1546,7 @@ QJsonObject AiBridgeServer::toolCreateDoor(const QJsonObject &args) {
   used.insert(QStringLiteral("wallThickness"), thickness);
   used.insert(QStringLiteral("side"), side);
   used.insert(QStringLiteral("style"), info->style);
+  insertOpeningHeightsUsed(scene, symBefore, used);
   result.insert(QStringLiteral("paramsUsed"), used);
   return result;
 }
@@ -1055,7 +1591,14 @@ QJsonObject AiBridgeServer::toolCreateWindow(const QJsonObject &args) {
     return fail(QStringLiteral("width(창 폭, mm)는 100 이상이어야 합니다."));
   const bool hasDouble = args.contains(QStringLiteral("double"));
 
+  // [3D] 개구부 높이 (생략하면 도면 기본값: 창 900/1200)
+  double sillHeight = 0.0, openingHeight = 0.0;
+  bool hasSill = false, hasOpenH = false;
+  if (!readOpeningHeights(args, hasSill, sillHeight, hasOpenH, openingHeight, err))
+    return err;
+
   const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  const QList<QString> symBefore = scene->symbolRegistry()->allSymbols().keys();
   double usedWidth = 0.0;
   bool usedDouble = false;
   {
@@ -1083,9 +1626,11 @@ QJsonObject AiBridgeServer::toolCreateWindow(const QJsonObject &args) {
     usedWidth = hasWidth ? width : oldW;
     usedDouble = PlanWindowTool::sashDouble();
 
+    OpeningHeights::setOverride(hasSill, sillHeight, hasOpenH, openingHeight);
     tool->mousePress(p1, Qt::LeftButton);
     tool->mousePress(p2, Qt::LeftButton);
     tool->mousePress(p3, Qt::LeftButton);
+    OpeningHeights::clearOverride();
 
     PlanWindowTool::setUseWallThickness(oldUse);
     PlanWindowTool::setSashDouble(oldDouble);
@@ -1114,8 +1659,45 @@ QJsonObject AiBridgeServer::toolCreateWindow(const QJsonObject &args) {
     used.insert(QStringLiteral("double"), usedDouble);
   used.insert(QStringLiteral("wallThickness"), thickness);
   used.insert(QStringLiteral("side"), side);
+  insertOpeningHeightsUsed(scene, symBefore, used);
   result.insert(QStringLiteral("paramsUsed"), used);
   return result;
+}
+
+// [3D] 이번 호출로 새로 등록된 문·창 심볼의 실제 개구부 높이를 paramsUsed 에 넣는다
+void AiBridgeServer::insertOpeningHeightsUsed(MyGraphicsScene *scene,
+                                              const QList<QString> &symBefore,
+                                              QJsonObject &used) {
+  const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+  for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+    if (symBefore.contains(it.key()) || !OpeningHeights::isOpeningType(it.value().type))
+      continue;
+    used.insert(QStringLiteral("sillHeight"),
+                OpeningHeights::sillOf(it.value(), m_ctx->layerManager()));
+    used.insert(QStringLiteral("openingHeight"),
+                OpeningHeights::heightOf(it.value(), m_ctx->layerManager()));
+    used.insert(QStringLiteral("heightLayer"),
+                it.value().props.value(QStringLiteral("FrameLayer")).toString());
+    return;
+  }
+}
+
+// [3D] 문·창 공용: sillHeight(하단높이, >= 0) / openingHeight(개구부 높이, > 0) 인자 읽기
+bool AiBridgeServer::readOpeningHeights(const QJsonObject &args, bool &hasSill, double &sill,
+                                        bool &hasHeight, double &height, QJsonObject &err) {
+  hasSill = args.contains(QStringLiteral("sillHeight"));
+  hasHeight = args.contains(QStringLiteral("openingHeight"));
+  sill = args.value(QStringLiteral("sillHeight")).toDouble(0.0);
+  height = args.value(QStringLiteral("openingHeight")).toDouble(0.0);
+  if (hasSill && sill < 0.0) {
+    err = fail(QStringLiteral("sillHeight(개구부 하단높이, mm)는 0 이상이어야 합니다."));
+    return false;
+  }
+  if (hasHeight && height <= 0.0) {
+    err = fail(QStringLiteral("openingHeight(개구부 높이, mm)는 0보다 커야 합니다."));
+    return false;
+  }
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3595,7 +4177,14 @@ QJsonObject AiBridgeServer::toolCreateLayer(const QJsonObject &args) {
     linetype = matched;
   }
 
-  if (!lm->addLayer(Layer(name, color, weight, linetype, false, true, true, false)))
+  // 기준 높이 / 높이 (mm, 3D·물량·단면용). 생략하면 0
+  const double elevation = args.value(QStringLiteral("elevation")).toDouble(0.0);
+  const double height = args.value(QStringLiteral("height")).toDouble(0.0);
+
+  Layer newLayer(name, color, weight, linetype, false, true, true, false);
+  newLayer.setElevation(elevation);
+  newLayer.setHeight(height);
+  if (!lm->addLayer(newLayer))
     return fail(QStringLiteral("레이어 '%1' 을 추가하지 못했습니다.").arg(name));
   bool madeCurrent = false;
   if (args.value(QStringLiteral("makeCurrent")).toBool(false))
@@ -3607,6 +4196,8 @@ QJsonObject AiBridgeServer::toolCreateLayer(const QJsonObject &args) {
   layerInfo.insert(QStringLiteral("weight"), weight);
   layerInfo.insert(QStringLiteral("linetype"), linetype);
   layerInfo.insert(QStringLiteral("current"), madeCurrent);
+  layerInfo.insert(QStringLiteral("elevation"), elevation);
+  layerInfo.insert(QStringLiteral("height"), height);
   QJsonObject result;
   result.insert(QStringLiteral("ok"), true);
   result.insert(QStringLiteral("layer"), layerInfo);
@@ -4634,4 +5225,882 @@ QJsonObject AiBridgeServer::describeItem(QGraphicsItem *item) {
   bbox.append(box.height());
   o.insert(QStringLiteral("bbox"), bbox);
   return o;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D] 기존 레이어의 기준높이·높이 (3D Layer > 레이어 높이 설정과 같은 값)
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolSetLayerHeight(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  LayerManager *lm = m_ctx->layerManager();
+  if (!lm)
+    return fail(QStringLiteral("레이어 관리자를 찾을 수 없습니다."));
+  const QString name = args.value(QStringLiteral("name")).toString().trimmed();
+  Layer *layer = lm->getLayer(name);
+  if (!layer)
+    return fail(QStringLiteral("레이어 '%1' 이 없습니다. get_layers 로 확인하세요.").arg(name));
+  if (!args.contains(QStringLiteral("elevation")) && !args.contains(QStringLiteral("height")))
+    return fail(QStringLiteral("elevation(기준높이 mm) 또는 height(높이 mm) 중 하나 이상이 필요합니다."));
+  if (args.contains(QStringLiteral("height")) &&
+      args.value(QStringLiteral("height")).toDouble(-1.0) < 0.0)
+    return fail(QStringLiteral("height 는 0 이상이어야 합니다 (0 = 높이 없음)."));
+  if (args.contains(QStringLiteral("elevation")))
+    layer->setElevation(args.value(QStringLiteral("elevation")).toDouble());
+  if (args.contains(QStringLiteral("height")))
+    layer->setHeight(args.value(QStringLiteral("height")).toDouble());
+  emit lm->layerPropertyChanged(name);
+
+  QJsonObject info;
+  info.insert(QStringLiteral("name"), name);
+  info.insert(QStringLiteral("elevation"), layer->elevation());
+  info.insert(QStringLiteral("height"), layer->height());
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("layer"), info);
+  return result;
+}
+
+static QJsonArray ringToJson(const QPolygonF &ring) {
+  QJsonArray arr;
+  for (int i = 0; i < ring.size(); ++i) {
+    QJsonArray p;
+    p.append(qRound(ring.at(i).x() * 10.0) / 10.0);
+    p.append(qRound(ring.at(i).y() * 10.0) / 10.0);
+    arr.append(p);
+  }
+  return arr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D] 2단계 모델 추출: 레이어별 벽 요약·개구부·경고 (+ 선택 시 형상)
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolGetModel3D(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  const Model3D model = BuildingModel3D::build(scene, m_ctx->layerManager());
+  const bool withGeometry = args.value(QStringLiteral("includeGeometry")).toBool(false);
+  const int maxSolids = args.value(QStringLiteral("maxSolids")).toInt(50);
+
+  QJsonObject perLayer;
+  QJsonArray solids;
+  for (int i = 0; i < model.solids.size(); ++i) {
+    const Model3DSolid &s = model.solids.at(i);
+    QJsonObject lo = perLayer.value(s.layer).toObject();
+    const QString kindKey = s.kind == Model3DSolid::Wall ? QStringLiteral("wall")
+                                                          : QStringLiteral("openingFill");
+    lo.insert(kindKey + QStringLiteral("Count"), lo.value(kindKey + QStringLiteral("Count")).toInt() + 1);
+    lo.insert(kindKey + QStringLiteral("PlanAreaM2"),
+              lo.value(kindKey + QStringLiteral("PlanAreaM2")).toDouble() + s.planArea() / 1e6);
+    lo.insert(kindKey + QStringLiteral("VolumeM3"),
+              lo.value(kindKey + QStringLiteral("VolumeM3")).toDouble() + s.volume() / 1e9);
+    perLayer.insert(s.layer, lo);
+
+    if (withGeometry && solids.size() < maxSolids) {
+      QJsonObject so;
+      so.insert(QStringLiteral("kind"), kindKey);
+      so.insert(QStringLiteral("layer"), s.layer);
+      so.insert(QStringLiteral("z0"), s.z0);
+      so.insert(QStringLiteral("z1"), s.z1);
+      so.insert(QStringLiteral("planAreaM2"), s.planArea() / 1e6);
+      QJsonArray rings;
+      for (int r = 0; r < s.rings.size(); ++r)
+        rings.append(ringToJson(s.rings.at(r)));
+      so.insert(QStringLiteral("rings"), rings);
+      if (!s.openingId.isEmpty())
+        so.insert(QStringLiteral("openingId"), s.openingId);
+      solids.append(so);
+    }
+  }
+
+  QJsonArray openings;
+  for (int i = 0; i < model.openings.size(); ++i) {
+    const Model3DOpening &o = model.openings.at(i);
+    QJsonObject oo;
+    oo.insert(QStringLiteral("name"), o.name);
+    oo.insert(QStringLiteral("type"), o.type);
+    oo.insert(QStringLiteral("width"), o.width);
+    oo.insert(QStringLiteral("depth"), o.depth);
+    oo.insert(QStringLiteral("sillHeight"), o.sill);
+    oo.insert(QStringLiteral("openingHeight"), o.height);
+    oo.insert(QStringLiteral("hosted"), o.hosted);
+    if (o.hosted) {
+      oo.insert(QStringLiteral("hostLayer"), o.hostLayer);
+      oo.insert(QStringLiteral("hostZ0"), o.hostZ0);
+      oo.insert(QStringLiteral("hostZ1"), o.hostZ1);
+    }
+    if (withGeometry)
+      oo.insert(QStringLiteral("footprint"), ringToJson(o.footprint));
+    openings.append(oo);
+  }
+
+  QJsonArray warnings;
+  for (int i = 0; i < model.warnings.size(); ++i) {
+    const Model3DWarning &w = model.warnings.at(i);
+    QJsonObject wo;
+    wo.insert(QStringLiteral("message"), w.message);
+    if (!w.at.isNull()) {
+      QJsonArray at;
+      at.append(qRound(w.at.x()));
+      at.append(qRound(w.at.y()));
+      wo.insert(QStringLiteral("at"), at);
+    }
+    warnings.append(wo);
+  }
+
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("heightLayers"), QJsonArray::fromStringList(model.layers));
+  result.insert(QStringLiteral("segmentCount"), model.segmentCount);
+  result.insert(QStringLiteral("faceCount"), model.faceCount);
+  result.insert(QStringLiteral("openEndCount"), model.openEndCount);
+  result.insert(QStringLiteral("autoCapCount"), model.autoCapCount);
+  result.insert(QStringLiteral("perLayer"), perLayer);
+  result.insert(QStringLiteral("openings"), openings);
+  result.insert(QStringLiteral("warnings"), warnings);
+  if (withGeometry)
+    result.insert(QStringLiteral("solids"), solids);
+  result.insert(QStringLiteral("summary"), BuildingModel3D::summaryText(model));
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D] 3D 보기 창을 열고(재사용) 현재 화면을 PNG 로 저장한다
+//   preset: iso(기본) | top | front | side, 또는 yaw/pitch(도)로 직접 지정
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolView3D(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  if (args.contains(QStringLiteral("radialSteps")))
+    MechModel3D::setRadialSteps(args.value(QStringLiteral("radialSteps")).toInt(64));
+  Model3DWindow *win = Model3DWindow::instance(m_ctx, nullptr);
+  win->setMode(args.value(QStringLiteral("mode")).toString() == QLatin1String("mechanical")
+                   ? Model3DWindow::Mechanical
+                   : Model3DWindow::Architecture);
+  win->showDrawing(m_ctx->activeDrawWindow(), true);
+  QStringList unknownParts;
+  if (win->mode() == Model3DWindow::Mechanical) {
+    // parts = ["축-1", ...] 이면 그 부품만, 없으면 전체
+    QStringList names;
+    const QJsonArray pa = args.value(QStringLiteral("parts")).toArray();
+    for (int i = 0; i < pa.size(); ++i)
+      names << pa.at(i).toString();
+    if (names.isEmpty())
+      win->showOnlyParts(QSet<QString>());
+    else
+      win->showOnlyPartNames(names, &unknownParts);
+  }
+  win->show();
+  win->raise();
+
+  const QString preset = args.value(QStringLiteral("preset")).toString(QStringLiteral("iso"));
+  if (preset == QLatin1String("top"))
+    win->view()->setPreset(Model3DView::Top);
+  else if (preset == QLatin1String("front"))
+    win->view()->setPreset(Model3DView::Front);
+  else if (preset == QLatin1String("side"))
+    win->view()->setPreset(Model3DView::Side);
+  else
+    win->view()->setPreset(Model3DView::Iso);
+  if (args.contains(QStringLiteral("yaw")) || args.contains(QStringLiteral("pitch")))
+    win->view()->setOrbit(args.value(QStringLiteral("yaw")).toDouble(-60.0),
+                          args.value(QStringLiteral("pitch")).toDouble(35.0));
+
+  QCoreApplication::processEvents();
+  const QImage img = win->view()->grabFramebuffer();
+  const QString path = QDir::tempPath() + QStringLiteral("/autodraft_3d.png");
+  if (img.isNull() || !img.save(path))
+    return fail(QStringLiteral("3D 화면을 저장하지 못했습니다."));
+
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("path"), QDir::fromNativeSeparators(path));
+  result.insert(QStringLiteral("sizePx"), QStringLiteral("%1x%2").arg(img.width()).arg(img.height()));
+  if (win->mode() == Model3DWindow::Mechanical) {
+    result.insert(QStringLiteral("visibleParts"), QJsonArray::fromStringList(win->visiblePartNames()));
+    if (!unknownParts.isEmpty())
+      result.insert(QStringLiteral("unknownParts"), QJsonArray::fromStringList(unknownParts));
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D] 3D 모델을 OBJ(+MTL, 단위 m)로 저장하고, 원하면 Blender 로 연다
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolExport3DObj(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  const bool mech = args.value(QStringLiteral("mode")).toString() == QLatin1String("mechanical");
+  if (args.contains(QStringLiteral("radialSteps")))
+    MechModel3D::setRadialSteps(args.value(QStringLiteral("radialSteps")).toInt(64));
+  Model3D model = mech ? MechModel3D::build(scene) : BuildingModel3D::build(scene, m_ctx->layerManager());
+  // 기계용: parts = ["축-1", ...] 이면 그 부품(커터·합침 포함)만
+  QStringList allPartNames, unknownParts;
+  if (mech) {
+    const QList<MechModel3D::PartEntry> entries = MechModel3D::partList(model);
+    for (int i = 0; i < entries.size(); ++i)
+      allPartNames << entries.at(i).name;
+    const QJsonArray pa = args.value(QStringLiteral("parts")).toArray();
+    if (!pa.isEmpty()) {
+      QSet<QString> want;
+      for (int n = 0; n < pa.size(); ++n) {
+        bool found = false;
+        for (int i = 0; i < entries.size(); ++i)
+          if (entries.at(i).name == pa.at(n).toString()) {
+            want.insert(entries.at(i).id);
+            found = true;
+          }
+        if (!found)
+          unknownParts << pa.at(n).toString();
+      }
+      QSet<QString> hidden;
+      for (int i = 0; i < entries.size(); ++i)
+        if (!want.contains(entries.at(i).id))
+          hidden.insert(entries.at(i).id);
+      model = MechModel3D::filtered(model, hidden);
+    }
+  }
+  QString path = args.value(QStringLiteral("path")).toString().trimmed();
+  if (path.isEmpty())
+    path = Model3DExport::tempObjPath(QStringLiteral("autodraft_model"));
+  if (!path.endsWith(QStringLiteral(".obj"), Qt::CaseInsensitive))
+    path += QStringLiteral(".obj");
+  QString error;
+  if (!Model3DExport::writeObj(model, path, &error))
+    return fail(error);
+  QString script;
+  if (!Model3DExport::writeBlenderScript(path, &script, &error))
+    return fail(error);
+
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("objPath"), QDir::fromNativeSeparators(path));
+  result.insert(QStringLiteral("blenderScript"), QDir::fromNativeSeparators(script));
+  result.insert(QStringLiteral("solidCount"), int(model.solids.size()));
+  result.insert(QStringLiteral("openingCount"), int(model.openings.size()));
+  QJsonArray partNames;
+  for (int i = 0; i < model.meshes.size(); ++i)
+    partNames.append(model.meshes.at(i).name);
+  result.insert(QStringLiteral("meshParts"), partNames);
+  if (mech) {
+    result.insert(QStringLiteral("allParts"), QJsonArray::fromStringList(allPartNames));
+    if (!unknownParts.isEmpty())
+      result.insert(QStringLiteral("unknownParts"), QJsonArray::fromStringList(unknownParts));
+  }
+  result.insert(QStringLiteral("radialSteps"), MechModel3D::radialSteps());
+  const QString exe = Model3DExport::findBlenderExe();
+  result.insert(QStringLiteral("blenderExe"), QDir::fromNativeSeparators(exe));
+  if (args.value(QStringLiteral("openBlender")).toBool(false)) {
+    if (!Model3DExport::openInBlender(path, exe, &error))
+      return fail(error);
+    result.insert(QStringLiteral("blenderStarted"), true);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 기계 Tools 의 축(ShaftTool)을 설정창 없이 배치한다. 배치되면 3D 기계용 파라미터도 함께 저장된다.
+//   at = 왼쪽 끝면 중심, segments = [{diameter, length, chamferLeft, chamferRight, fit}],
+//   segments[i].keyway = {type:"open"|"closed", ref:"center"|"left"|"right", offset, length, width, center, depth, section}
+//     (width·depth 를 빼면 KS 평행키 표준값, 끝 열림의 ref 는 열린 쪽)
+//   thread = {side:"none"|"left"|"right"|"both", length, pitch, left:{length,pitch}, right:{length,pitch}}
+//   옛 형식 leftEnd/rightEnd = {type:"keyway"|"thread", ...} 도 받는다 (키홈 → 끝 구간 끝 열림, 나사 → 그 끝)
+// ─────────────────────────────────────────────────────────────────────────────
+static bool readShaftKeyway(const QJsonObject &o, int index, int segCount, double diameter, ShaftKeyway &k,
+                            QString &err) {
+  k = ShaftKeyway();
+  k.enabled = true;
+  const QString type = o.value(QStringLiteral("type")).toString(QString());
+  const QString ref = o.value(QStringLiteral("ref")).toString(QString());
+  if (type.isEmpty())
+    k.type = (index == 0 || index == segCount - 1) && !ref.isEmpty() && ref != QLatin1String("center")
+                 ? ShaftKeywayType::Open
+                 : ShaftKeywayType::Closed;
+  else if (type == QLatin1String("open"))
+    k.type = ShaftKeywayType::Open;
+  else if (type == QLatin1String("closed"))
+    k.type = ShaftKeywayType::Closed;
+  else {
+    err = QStringLiteral("keyway.type 은 open, closed 중 하나입니다.");
+    return false;
+  }
+  if (ref.isEmpty()) {
+    if (k.type == ShaftKeywayType::Open)
+      k.ref = (index == 0) ? ShaftKeywayRef::Left : ShaftKeywayRef::Right;
+    else
+      k.ref = ShaftKeywayRef::Center;
+  } else if (ref == QLatin1String("center")) {
+    k.ref = ShaftKeywayRef::Center;
+  } else if (ref == QLatin1String("left")) {
+    k.ref = ShaftKeywayRef::Left;
+  } else if (ref == QLatin1String("right")) {
+    k.ref = ShaftKeywayRef::Right;
+  } else {
+    err = QStringLiteral("keyway.ref 는 center, left, right 중 하나입니다.");
+    return false;
+  }
+  double stdW = 0.0, stdD = 0.0;
+  if (!ShaftKeyway::standardSize(diameter, stdW, stdD)) {
+    stdW = 5.0;
+    stdD = 3.0;
+  }
+  const double width = o.value(QStringLiteral("width")).toDouble(stdW);
+  k.upper = width * 0.5;
+  k.lower = width * 0.5;
+  k.center = o.value(QStringLiteral("center")).toDouble(0.0);
+  k.offset = o.value(QStringLiteral("offset")).toDouble(0.0);
+  k.length = o.value(QStringLiteral("length")).toDouble(14.0);
+  k.sectionDepth = o.value(QStringLiteral("depth")).toDouble(stdD);
+  k.showSection = o.value(QStringLiteral("section")).toBool(false);
+  return true;
+}
+
+static void readThreadSize(const QJsonObject &o, ShaftThread &t) {
+  t.length = o.value(QStringLiteral("length")).toDouble(t.length);
+  t.pitch = o.value(QStringLiteral("pitch")).toDouble(t.pitch);
+}
+
+static bool readShaftThread(const QJsonValue &v, ShaftParams &p, QString &err) {
+  if (!v.isObject())
+    return true;
+  const QJsonObject o = v.toObject();
+  const QString side = o.value(QStringLiteral("side")).toString(QStringLiteral("none"));
+  if (side == QLatin1String("none"))
+    p.threadSide = ShaftThreadSide::None;
+  else if (side == QLatin1String("left"))
+    p.threadSide = ShaftThreadSide::Left;
+  else if (side == QLatin1String("right"))
+    p.threadSide = ShaftThreadSide::Right;
+  else if (side == QLatin1String("both"))
+    p.threadSide = ShaftThreadSide::Both;
+  else {
+    err = QStringLiteral("thread.side 는 none, left, right, both 중 하나입니다.");
+    return false;
+  }
+  p.leftThread = ShaftThread();
+  p.rightThread = ShaftThread();
+  readThreadSize(o, p.leftThread);
+  readThreadSize(o, p.rightThread);
+  readThreadSize(o.value(QStringLiteral("left")).toObject(), p.leftThread);
+  readThreadSize(o.value(QStringLiteral("right")).toObject(), p.rightThread);
+  return true;
+}
+
+// 옛 형식 끝단 {type:"keyway"|"thread"|"none", ...}
+static bool readLegacyShaftEnd(const QJsonValue &v, int side, ShaftParams &p, QString &err) {
+  if (!v.isObject() || p.segments.isEmpty())
+    return true;
+  const QJsonObject o = v.toObject();
+  const QString type = o.value(QStringLiteral("type")).toString(QStringLiteral("none"));
+  if (type == QLatin1String("none"))
+    return true;
+  if (type == QLatin1String("keyway")) {
+    const int idx = (side == 0) ? 0 : int(p.segments.size()) - 1;
+    QJsonObject ko = o;
+    ko.insert(QStringLiteral("type"), QStringLiteral("open"));
+    ko.insert(QStringLiteral("ref"), side == 0 ? QStringLiteral("left") : QStringLiteral("right"));
+    return readShaftKeyway(ko, idx, int(p.segments.size()), p.segments.at(idx).diameter, p.segments[idx].keyway,
+                           err);
+  }
+  if (type == QLatin1String("thread")) {
+    ShaftThread &t = (side == 0) ? p.leftThread : p.rightThread;
+    t = ShaftThread();
+    readThreadSize(o, t);
+    const bool other = p.hasThread(1 - side);
+    p.threadSide = other ? ShaftThreadSide::Both : (side == 0 ? ShaftThreadSide::Left : ShaftThreadSide::Right);
+    return true;
+  }
+  err = QStringLiteral("끝단 type 은 none, keyway, thread 중 하나입니다.");
+  return false;
+}
+
+QJsonObject AiBridgeServer::toolCreateShaft(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at 은 축 왼쪽 끝면 중심 [x, y] 입니다. 예: {\"at\":[0,0],\"segments\":"
+                               "[{\"diameter\":20,\"length\":30},{\"diameter\":25,\"length\":40}]}"));
+
+  ShaftParams p = ShaftParams::sample();
+  if (args.contains(QStringLiteral("segments"))) {
+    const QJsonArray segs = args.value(QStringLiteral("segments")).toArray();
+    if (segs.isEmpty())
+      return fail(QStringLiteral("segments 가 비어 있습니다."));
+    p.segments.clear();
+    for (int i = 0; i < segs.size(); ++i) {
+      const QJsonObject o = segs.at(i).toObject();
+      ShaftSegment s;
+      s.diameter = o.value(QStringLiteral("diameter")).toDouble(20.0);
+      s.length = o.value(QStringLiteral("length")).toDouble(20.0);
+      s.chamferLeft = o.value(QStringLiteral("chamferLeft")).toDouble(0.0);
+      s.chamferRight = o.value(QStringLiteral("chamferRight")).toDouble(0.0);
+      s.fit = o.value(QStringLiteral("fit")).toString();
+      p.segments << s;
+    }
+    p.threadSide = ShaftThreadSide::None;
+    QString kwErr;
+    for (int i = 0; i < segs.size(); ++i) {
+      const QJsonValue kv = segs.at(i).toObject().value(QStringLiteral("keyway"));
+      if (!kv.isObject())
+        continue;
+      if (!readShaftKeyway(kv.toObject(), i, int(segs.size()), p.segments.at(i).diameter, p.segments[i].keyway,
+                           kwErr))
+        return fail(QStringLiteral("구간 %1: %2").arg(i + 1).arg(kwErr));
+    }
+  }
+  QString endErr;
+  if (!readShaftThread(args.value(QStringLiteral("thread")), p, endErr) ||
+      !readLegacyShaftEnd(args.value(QStringLiteral("leftEnd")), 0, p, endErr) ||
+      !readLegacyShaftEnd(args.value(QStringLiteral("rightEnd")), 1, p, endErr))
+    return fail(endErr);
+  if (args.contains(QStringLiteral("dimensions"))) {
+    const bool dims = args.value(QStringLiteral("dimensions")).toBool(true);
+    p.diameterDims = dims;
+    p.lengthDims = dims;
+  }
+  const QStringList problems = ShaftBuilder::validate(p);
+  if (!problems.isEmpty())
+    return fail(QStringLiteral("축 입력 오류: %1").arg(problems.join(QStringLiteral(" / "))));
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    ShaftTool *tool = new ShaftTool();
+    ShaftTool::setHeadlessParams(p);
+    m_ctx->startTool(tool);
+    ShaftTool::clearHeadless();
+    tool->mousePress(at, Qt::LeftButton);
+    m_ctx->finishCurrentTool();
+  }
+  QJsonObject result = newItemsResult(scene, before, QStringLiteral("축이 만들어지지 않았습니다."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used;
+  used.insert(QStringLiteral("segmentCount"), int(p.segments.size()));
+  used.insert(QStringLiteral("totalLength"), p.totalLength());
+  used.insert(QStringLiteral("maxDiameter"), p.maxDiameter());
+  result.insert(QStringLiteral("paramsUsed"), used);
+  result.insert(QStringLiteral("note"),
+                QStringLiteral("3D 는 view_3d / export_3d_obj 에 mode=\"mechanical\" 로 확인합니다."));
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 기계 Tools 의 깊은 홈 볼베어링을 설정창 없이 배치 (3D 기계용 파라미터도 저장)
+//   at = 베어링 중심, angle = 축선 방향(도), name = 호칭번호(69 계열, 예 "6904") 또는 d/D/B/r 직접
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D 기계용] 해칭 단면 + 회전축 → 회전체 (메뉴 "단면 회전체 만들기" 와 같은 등록)
+//   hatchAt = 해칭 안쪽 점 목록, axis = [[x,y],[x,y]], name, fits = [{hole, diameter, fit}]
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolCreateRevolve(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  const QJsonArray at = args.value(QStringLiteral("hatchAt")).toArray();
+  const QJsonArray ax = args.value(QStringLiteral("axis")).toArray();
+  QPointF a0, a1;
+  // 영역 방식: area = {box:[x,y,w,h], picks:[[x,y],…]} (picks 생략 = 복합모양)
+  if (args.contains(QStringLiteral("area"))) {
+    const QJsonObject ar = args.value(QStringLiteral("area")).toObject();
+    const QJsonArray b = ar.value(QStringLiteral("box")).toArray();
+    if (b.size() != 4 || ax.size() != 2 || !readPoint(ax.at(0), a0) || !readPoint(ax.at(1), a1))
+      return fail(QStringLiteral("area.box = [x, y, 폭, 높이], axis = 회전축 두 점이 필요합니다."));
+    const QRectF box = QRectF(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble()).normalized();
+    QList<QPointF> picks;
+    const QJsonArray pj = ar.value(QStringLiteral("picks")).toArray();
+    for (int i = 0; i < pj.size(); ++i) {
+      QPointF p;
+      if (readPoint(pj.at(i), p))
+        picks << p;
+    }
+    const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks);
+    if (region.isEmpty())
+      return fail(QStringLiteral("닫힌 공간을 찾지 못했습니다 (box 안 객체·picks 점 확인)."));
+    RevolveProfile::normalizeAxis(a0, a1);
+    const QString sideStr = args.value(QStringLiteral("side")).toString(QStringLiteral("auto"));
+    const int side = sideStr == QLatin1String("upper") ? RevolveProfile::SideUpper
+                     : sideStr == QLatin1String("lower") ? RevolveProfile::SideLower
+                                                         : RevolveProfile::SideAuto;
+    bool hasUp = false, hasLo = false, symmetric = true;
+    RevolveProfile::sideInfo(QList<QPainterPath>{region}, a0, a1, hasUp, hasLo, symmetric);
+    if (side == RevolveProfile::SideAuto && hasUp && hasLo && !symmetric)
+      return fail(QStringLiteral("회전축 위쪽과 아래쪽 단면 모양이 다릅니다. side 를 \"upper\" 또는 \"lower\" 로 지정하세요."));
+    QMap<QString, QString> fits;
+    const QJsonArray fa = args.value(QStringLiteral("fits")).toArray();
+    for (int i = 0; i < fa.size(); ++i) {
+      const QJsonObject o = fa.at(i).toObject();
+      fits.insert(RevolveCylinder::keyFor(o.value(QStringLiteral("hole")).toBool(),
+                                          o.value(QStringLiteral("diameter")).toDouble()),
+                  o.value(QStringLiteral("fit")).toString());
+    }
+    const QString existing = RevolveProfile::findExisting(scene, QList<QGraphicsItem *>(), a0, a1, region.boundingRect());
+    QString name = args.value(QStringLiteral("name")).toString().trimmed();
+    if (!existing.isEmpty()) {
+      const SymbolInfo info = scene->symbolRegistry()->symbolInfo(existing);
+      if (name.isEmpty())
+        name = info.props.value(QStringLiteral("Name")).toString();
+      if (!args.contains(QStringLiteral("fits")))
+        fits = RevolveProfile::fitsFromJson(info.props.value(QStringLiteral("Fits")).toString());
+    }
+    if (name.isEmpty())
+      name = QStringLiteral("회전체");
+    QUndoStack *undo = m_ctx->undoStack();
+    if (undo)
+      undo->beginMacro(QStringLiteral("단면 회전체"));
+    QString error;
+    const QString uuid = RevolveProfile::registerRevolveArea(scene, undo, box, picks, region, a0, a1, name, fits, side,
+                                                             existing, &error);
+    if (!uuid.isEmpty())
+      ProjectionView::setMirror(m_ctx, scene, uuid, args.value(QStringLiteral("mirror")).toBool(true));
+    if (undo)
+      undo->endMacro();
+    if (uuid.isEmpty())
+      return fail(error);
+    const QList<RevolveCylinder> cyls = RevolveProfile::mergedByKey(
+        RevolveProfile::cylinders(RevolveProfile::sectionLoops(QList<QPainterPath>{region}, a0, a1, side)));
+    QJsonObject result;
+    result.insert(QStringLiteral("ok"), true);
+    result.insert(QStringLiteral("source"), QStringLiteral("area"));
+    result.insert(QStringLiteral("updated"), !existing.isEmpty());
+    result.insert(QStringLiteral("symmetric"), symmetric);
+    QJsonArray cj;
+    for (int i = 0; i < cyls.size(); ++i) {
+      QJsonObject o;
+      o.insert(QStringLiteral("hole"), cyls.at(i).hole);
+      o.insert(QStringLiteral("diameter"), cyls.at(i).diameter);
+      o.insert(QStringLiteral("length"), cyls.at(i).x1 - cyls.at(i).x0);
+      o.insert(QStringLiteral("fit"), fits.value(cyls.at(i).key()));
+      cj.append(o);
+    }
+    result.insert(QStringLiteral("cylinders"), cj);
+    return result;
+  }
+  if (at.isEmpty() || ax.size() != 2 || !readPoint(ax.at(0), a0) || !readPoint(ax.at(1), a1))
+    return fail(QStringLiteral("hatchAt = 해칭 안쪽 점 [[x,y],…], axis = 회전축 두 점 [[x,y],[x,y]] 이 필요합니다."));
+
+  QList<QGraphicsItem *> hatches;
+  for (int i = 0; i < at.size(); ++i) {
+    QPointF p;
+    if (!readPoint(at.at(i), p))
+      return fail(QStringLiteral("hatchAt[%1] 이 점 [x, y] 가 아닙니다.").arg(i));
+    const QList<QGraphicsItem *> items = scene->items(QRectF(p.x() - 0.5, p.y() - 0.5, 1.0, 1.0));
+    HatchItem *found = nullptr;
+    for (int k = 0; k < items.size() && !found; ++k) {
+      HatchItem *h = dynamic_cast<HatchItem *>(items.at(k));
+      if (h && h->sceneTransform().map(h->geometryPath()).contains(p))
+        found = h;
+    }
+    if (!found)
+      return fail(QStringLiteral("hatchAt[%1] (%2, %3) 에 해칭이 없습니다.").arg(i).arg(p.x()).arg(p.y()));
+    if (!hatches.contains(found))
+      hatches << found;
+  }
+
+  QMap<QString, QString> fits;
+  const QJsonArray fa = args.value(QStringLiteral("fits")).toArray();
+  for (int i = 0; i < fa.size(); ++i) {
+    const QJsonObject o = fa.at(i).toObject();
+    fits.insert(RevolveCylinder::keyFor(o.value(QStringLiteral("hole")).toBool(),
+                                        o.value(QStringLiteral("diameter")).toDouble()),
+                o.value(QStringLiteral("fit")).toString());
+  }
+  QString name = args.value(QStringLiteral("name")).toString().trimmed();
+
+  RevolveProfile::normalizeAxis(a0, a1);
+  QList<QPainterPath> paths;
+  for (int i = 0; i < hatches.size(); ++i)
+    paths << hatches.at(i)->sceneTransform().map(static_cast<HatchItem *>(hatches.at(i))->geometryPath());
+  const QString sideStr = args.value(QStringLiteral("side")).toString(QStringLiteral("auto"));
+  int side = RevolveProfile::SideAuto;
+  if (sideStr == QLatin1String("upper"))
+    side = RevolveProfile::SideUpper;
+  else if (sideStr == QLatin1String("lower"))
+    side = RevolveProfile::SideLower;
+  bool hasUp = false, hasLo = false, symmetric = true;
+  RevolveProfile::sideInfo(paths, a0, a1, hasUp, hasLo, symmetric);
+  if (side == RevolveProfile::SideAuto && hasUp && hasLo && !symmetric)
+    return fail(QStringLiteral("회전축 위쪽과 아래쪽 단면 모양이 다릅니다. side 를 \"upper\" 또는 \"lower\" 로 지정하세요."));
+  const QList<RevolveCylinder> cyls =
+      RevolveProfile::mergedByKey(RevolveProfile::cylinders(RevolveProfile::sectionLoops(paths, a0, a1, side)));
+  const QString existing = RevolveProfile::findExisting(scene, hatches, a0, a1);
+  if (!existing.isEmpty()) {
+    const SymbolInfo info = scene->symbolRegistry()->symbolInfo(existing);
+    if (name.isEmpty())
+      name = info.props.value(QStringLiteral("Name")).toString();
+    if (!args.contains(QStringLiteral("fits")))
+      fits = RevolveProfile::fitsFromJson(info.props.value(QStringLiteral("Fits")).toString());
+  }
+  if (name.isEmpty())
+    name = QStringLiteral("회전체");
+
+  QUndoStack *undo = m_ctx->undoStack();
+  if (undo)
+    undo->beginMacro(QStringLiteral("단면 회전체"));
+  QString error;
+  const QString uuid = RevolveProfile::registerRevolve(scene, undo, hatches, a0, a1, name, fits, side, existing, &error);
+  if (!uuid.isEmpty())
+    ProjectionView::setMirror(m_ctx, scene, uuid, args.value(QStringLiteral("mirror")).toBool(true));
+  if (undo)
+    undo->endMacro();
+  if (uuid.isEmpty())
+    return fail(error);
+
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("hatchCount"), int(hatches.size()));
+  result.insert(QStringLiteral("updated"), !existing.isEmpty());
+  result.insert(QStringLiteral("symmetric"), symmetric);
+  QJsonArray cj;
+  for (int i = 0; i < cyls.size(); ++i) {
+    QJsonObject o;
+    o.insert(QStringLiteral("hole"), cyls.at(i).hole);
+    o.insert(QStringLiteral("diameter"), cyls.at(i).diameter);
+    o.insert(QStringLiteral("length"), cyls.at(i).x1 - cyls.at(i).x0);
+    o.insert(QStringLiteral("fit"), fits.value(cyls.at(i).key()));
+    cj.append(o);
+  }
+  result.insert(QStringLiteral("cylinders"), cj);
+  result.insert(QStringLiteral("note"), QStringLiteral("3D 는 view_3d / export_3d_obj 에 mode=\"mechanical\" 로 확인합니다."));
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [3D 기계용] 투상도: part = 부품 이름(예 "하우징-1"), kind = left|right|top, at = 놓을 점
+// ─────────────────────────────────────────────────────────────────────────────
+QJsonObject AiBridgeServer::toolCreateProjection(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  const QString partName = args.value(QStringLiteral("part")).toString().trimmed();
+  QString uuid;
+  QStringList names;
+  const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+  for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+    if (!it.value().type.startsWith(QStringLiteral("Mech")))
+      continue;
+    names << it.value().name;
+    if (it.value().name == partName)
+      uuid = it.key();
+  }
+  if (uuid.isEmpty())
+    return fail(QStringLiteral("부품 '%1' 이 없습니다. 있는 부품: %2").arg(partName, names.join(QStringLiteral(", "))));
+  const QString kindStr = args.value(QStringLiteral("kind")).toString(QStringLiteral("left"));
+  const int kind = kindStr == QLatin1String("right") ? ProjectionView::Right
+                   : kindStr == QLatin1String("top") ? ProjectionView::Top
+                                                     : ProjectionView::Left;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at = 놓을 점 [x, y] 가 필요합니다."));
+  QList<RevolveLoop> loops;
+  QPointF a0;
+  double angle = 0.0;
+  QString name;
+  if (!MechModel3D::revolveSection(scene, uuid, loops, a0, angle, name))
+    return fail(QStringLiteral("이 부품은 투상도를 만들 수 있는 회전체가 아닙니다."));
+  const double param = ProjectionView::paramFor(kind, a0, angle, at);
+  const QString viewId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QUndoStack *undo = m_ctx->undoStack();
+  if (undo)
+    undo->beginMacro(QStringLiteral("투상도"));
+  QString error;
+  const bool showHidden = args.value(QStringLiteral("hidden")).toBool(false);
+  const bool ok = ProjectionView::drawView(m_ctx, scene, uuid, viewId, kind, param, showHidden, &error);
+  if (ok)
+    ProjectionView::addViewRecord(m_ctx, scene, uuid, viewId, kind, param, showHidden);
+  if (undo)
+    undo->endMacro();
+  if (!ok)
+    return fail(error);
+  const ProjDrawing d = ProjectionView::build(loops, kind, a0, angle, param, showHidden);
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("view"), ProjectionView::kindName(kind));
+  result.insert(QStringLiteral("param"), param);
+  QJsonArray vc, hc;
+  for (int i = 0; i < d.visibleCircles.size(); ++i)
+    vc.append(d.visibleCircles.at(i).r * 2.0);
+  for (int i = 0; i < d.hiddenCircles.size(); ++i)
+    hc.append(d.hiddenCircles.at(i).r * 2.0);
+  result.insert(QStringLiteral("visibleCircleDiameters"), vc);
+  result.insert(QStringLiteral("hiddenCircleDiameters"), hc);
+  result.insert(QStringLiteral("visibleLines"), int(d.visible.size()));
+  result.insert(QStringLiteral("hiddenLines"), int(d.hidden.size()));
+  return result;
+}
+
+// [3D 기계용] 돌출: area = {box, picks}(측면도에 그린 공간, 투상 원도 경계), name, offset, depth, merge
+QJsonObject AiBridgeServer::toolCreateExtrude(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  const QJsonObject ar = args.value(QStringLiteral("area")).toObject();
+  const QJsonArray b = ar.value(QStringLiteral("box")).toArray();
+  if (b.size() != 4)
+    return fail(QStringLiteral("area.box = [x, y, 폭, 높이] 가 필요합니다."));
+  const QRectF box = QRectF(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble()).normalized();
+  QList<QPointF> picks;
+  const QJsonArray pj = ar.value(QStringLiteral("picks")).toArray();
+  for (int i = 0; i < pj.size(); ++i) {
+    QPointF p;
+    if (readPoint(pj.at(i), p))
+      picks << p;
+  }
+  const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks, true);
+  if (region.isEmpty())
+    return fail(QStringLiteral("닫힌 공간을 찾지 못했습니다."));
+  QString host, viewId;
+  int viewKind = 0;
+  if (!ExtrudeFeature::findHostView(scene, region, host, viewId, viewKind))
+    return fail(QStringLiteral("공간 근처에 단면 회전체의 측면도가 없습니다."));
+  QUndoStack *undo = m_ctx->undoStack();
+  if (undo)
+    undo->beginMacro(QStringLiteral("돌출"));
+  QString error;
+  const QString uuid = ExtrudeFeature::registerExtrude(
+      scene, undo, host, viewId, viewKind, box, picks, region, args.value(QStringLiteral("name")).toString(QStringLiteral("받침대")),
+      args.value(QStringLiteral("offset")).toDouble(0.0), args.value(QStringLiteral("depth")).toDouble(10.0),
+      args.value(QStringLiteral("merge")).toBool(true), &error);
+  if (!uuid.isEmpty()) {
+    ProjectionView::ensureFrontView(m_ctx, scene, host);
+    ProjectionView::regeneratePart(m_ctx, scene, host);
+  }
+  if (undo)
+    undo->endMacro();
+  if (uuid.isEmpty())
+    return fail(error);
+  ExtrudeInfo ei;
+  const bool ok = ExtrudeFeature::resolve(scene, uuid, ei);
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("host"), scene->symbolRegistry()->symbolInfo(host).name);
+  result.insert(QStringLiteral("view"), ProjectionView::kindName(viewKind));
+  result.insert(QStringLiteral("resolved"), ok);
+  result.insert(QStringLiteral("x0"), ei.x0);
+  result.insert(QStringLiteral("x1"), ei.x1);
+  result.insert(QStringLiteral("rings"), int(ei.rings.size()));
+  return result;
+}
+
+// [3D 기계용] 깊이 이동: at = 부품을 고를 점, ref = 기준면 점, depth
+QJsonObject AiBridgeServer::toolDepthMove(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at, ref;
+  if (!readPoint(args.value(QStringLiteral("at")), at) || !readPoint(args.value(QStringLiteral("ref")), ref))
+    return fail(QStringLiteral("at = 부품을 고를 점, ref = 기준면 점 [x, y] 가 필요합니다."));
+  bool isExtrude = false;
+  const QString uuid = DepthMove::partAt(scene, at, isExtrude);
+  if (uuid.isEmpty())
+    return fail(QStringLiteral("at 에서 단면 회전체나 돌출 부품을 찾지 못했습니다."));
+  QUndoStack *undo = m_ctx->undoStack();
+  if (undo)
+    undo->beginMacro(QStringLiteral("깊이 이동"));
+  double delta = 0.0;
+  QString error;
+  const bool ok = DepthMove::apply(m_ctx, scene, uuid, isExtrude, ref, args.value(QStringLiteral("depth")).toDouble(0.0),
+                                   &delta, &error);
+  if (undo)
+    undo->endMacro();
+  if (!ok)
+    return fail(error);
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("part"), scene->symbolRegistry()->symbolInfo(uuid).name);
+  result.insert(QStringLiteral("isExtrude"), isExtrude);
+  result.insert(QStringLiteral("delta"), delta);
+  return result;
+}
+
+QJsonObject AiBridgeServer::toolRegenProjections(const QJsonObject &args) {
+  Q_UNUSED(args);
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QUndoStack *undo = m_ctx->undoStack();
+  if (undo)
+    undo->beginMacro(QStringLiteral("투상도 다시 그리기"));
+  const int n = ProjectionView::regenerateAll(m_ctx, scene);
+  if (undo)
+    undo->endMacro();
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("regenerated"), n);
+  return result;
+}
+
+QJsonObject AiBridgeServer::toolCreateBearing(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at 은 베어링 중심 [x, y] 입니다. 예: {\"at\":[50,0],\"name\":\"6904\"}"));
+
+  DeepGrooveBearingParams p;
+  const QString name = args.value(QStringLiteral("name")).toString().trimmed();
+  if (!name.isEmpty()) {
+    const DeepGrooveBearingSpec spec = DeepGrooveBearingTable::find(name);
+    if (spec.name.isEmpty())
+      return fail(QStringLiteral("호칭번호 '%1' 이 규격표(69 계열 693~6940)에 없습니다. d/D/B 로 직접 줄 수도 있습니다.")
+                      .arg(name));
+    p.name = spec.name;
+    p.d = spec.d;
+    p.D = spec.D;
+    p.B = spec.B;
+    p.r = spec.r;
+  }
+  if (args.contains(QStringLiteral("d"))) p.d = args.value(QStringLiteral("d")).toDouble();
+  if (args.contains(QStringLiteral("D"))) p.D = args.value(QStringLiteral("D")).toDouble();
+  if (args.contains(QStringLiteral("B"))) p.B = args.value(QStringLiteral("B")).toDouble();
+  if (args.contains(QStringLiteral("r"))) p.r = args.value(QStringLiteral("r")).toDouble();
+  if (name.isEmpty() && (args.contains(QStringLiteral("d")) || args.contains(QStringLiteral("D"))))
+    p.name.clear();
+  if (p.d <= 0.0 || p.D <= p.d || p.B <= 0.0)
+    return fail(QStringLiteral("치수가 맞지 않습니다: 0 < d < D, B > 0 이어야 합니다."));
+  if (args.contains(QStringLiteral("dimensions")))
+    p.drawDims = args.value(QStringLiteral("dimensions")).toBool(true);
+  const double angle = args.value(QStringLiteral("angle")).toDouble(0.0);
+
+  const QSet<QGraphicsItem *> before = snapshotItems(scene);
+  {
+    SnapSuspender guard(m_ctx->snapManager());
+    DeepGrooveBearingTool *tool = new DeepGrooveBearingTool();
+    DeepGrooveBearingTool::setHeadlessParams(p);
+    m_ctx->startTool(tool);
+    DeepGrooveBearingTool::clearHeadless();
+    tool->mousePress(at, Qt::LeftButton);                     // 중심
+    tool->processCommand(QString::number(angle, 'f', 6));     // 회전 각도 → 배치
+    m_ctx->finishCurrentTool();
+  }
+  QJsonObject result = newItemsResult(scene, before, QStringLiteral("베어링이 만들어지지 않았습니다."));
+  if (!result.value(QStringLiteral("ok")).toBool())
+    return result;
+  QJsonObject used;
+  used.insert(QStringLiteral("name"), p.name);
+  used.insert(QStringLiteral("d"), p.d);
+  used.insert(QStringLiteral("D"), p.D);
+  used.insert(QStringLiteral("B"), p.B);
+  used.insert(QStringLiteral("r"), p.r);
+  used.insert(QStringLiteral("angle"), angle);
+  result.insert(QStringLiteral("paramsUsed"), used);
+  return result;
 }

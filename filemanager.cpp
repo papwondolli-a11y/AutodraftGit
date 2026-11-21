@@ -25,6 +25,7 @@
 #include "detailregiondata.h"
 #include "twolinetool.h"
 #include "planarchdata.h"
+#include "mechpartdata.h"
 #include "scenesymbolregistry.h"
 #include <QBuffer>
 #include <QDataStream>
@@ -80,12 +81,17 @@ bool FileManager::initDatabase(const QString &dbPath) {
                "is_on INTEGER,"
                "is_plot INTEGER,"
                "is_lock INTEGER,"
-               "print_color TEXT"
+               "print_color TEXT,"
+               "elevation REAL DEFAULT 0,"
+               "height REAL DEFAULT 0"
                ")");
 
     // [출력 스타일] 기존 파일(이 컬럼이 생기기 전에 저장된 .cdb)과의 호환을 위한 마이그레이션.
     // 컬럼이 이미 있으면 실패하는데, 그 실패는 의도된 것이므로 결과를 확인하지 않는다.
     query.exec("ALTER TABLE layers ADD COLUMN print_color TEXT");
+    // [레이어 높이] 같은 방식의 마이그레이션 (이미 있으면 실패 = 정상)
+    query.exec("ALTER TABLE layers ADD COLUMN elevation REAL DEFAULT 0");
+    query.exec("ALTER TABLE layers ADD COLUMN height REAL DEFAULT 0");
 
     // 엔티티 테이블: 메타데이터 저장
     query.exec("CREATE TABLE IF NOT EXISTS entities ("
@@ -153,8 +159,8 @@ bool FileManager::saveDrawing(const QString &filePath, MyGraphicsScene *scene) {
                 const Layer &layer = layers[i];
                 query.prepare(
                     "INSERT INTO layers (name, color, weight, linetype, is_on, "
-                    "is_plot, is_lock, print_color) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    "is_plot, is_lock, print_color, elevation, height) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 query.addBindValue(layer.name());
                 query.addBindValue(layer.color().name());
                 query.addBindValue(layer.weight());
@@ -163,6 +169,8 @@ bool FileManager::saveDrawing(const QString &filePath, MyGraphicsScene *scene) {
                 query.addBindValue(layer.isPlotOn() ? 1 : 0);
                 query.addBindValue(layer.isLayerLock() ? 1 : 0);
                 query.addBindValue(layer.hasPrintColorOverride() ? layer.printColor().name() : QString());
+                query.addBindValue(layer.elevation());
+                query.addBindValue(layer.height());
 
                 // [개선 3: 명시적 롤백] 쿼리 실패 시 즉시 롤백하여 DB 락/손상 방지
                 if (!query.exec()) { db.rollback(); return false; }
@@ -379,6 +387,9 @@ bool FileManager::loadDrawing(const QString &filePath, MyGraphicsScene *scene,
         // 컬럼 존재 여부를 먼저 확인해야 한다. (없는 컬럼을 value()로 조회하면
         // 레이어 수만큼 "QSqlQuery::value: unknown field name 'print_color'" 경고가 출력됨)
         const bool hasPrintColorColumn = layerQuery.record().contains("print_color");
+        // [레이어 높이] 옛 파일에는 elevation/height 컬럼이 없다 → 기본값 0 유지
+        const bool hasElevationColumn = layerQuery.record().contains("elevation");
+        const bool hasHeightColumn = layerQuery.record().contains("height");
         while (layerQuery.next()) {
             QString name = layerQuery.value("name").toString();
             QColor color(layerQuery.value("color").toString());
@@ -397,6 +408,10 @@ bool FileManager::loadDrawing(const QString &filePath, MyGraphicsScene *scene,
                     newLayer.setPrintColor(QColor(printColorStr));
                 }
             }
+            if (hasElevationColumn)
+                newLayer.setElevation(layerQuery.value("elevation").toDouble());
+            if (hasHeightColumn)
+                newLayer.setHeight(layerQuery.value("height").toDouble());
 
             // 이미 존재하면 업데이트, 없으면 추가
             if (m_ctx->layerManager()->getLayer(name)) {
@@ -782,8 +797,8 @@ bool FileManager::exportSelectedItems(const QString &filePath,
                 if (usedLayerNames.contains(layer.name())) {
                     query.prepare(
                         "INSERT INTO layers (name, color, weight, linetype, is_on, "
-                        "is_plot, is_lock, print_color) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                        "is_plot, is_lock, print_color, elevation, height) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     query.addBindValue(layer.name());
                     query.addBindValue(layer.color().name());
                     query.addBindValue(layer.weight());
@@ -792,6 +807,8 @@ bool FileManager::exportSelectedItems(const QString &filePath,
                     query.addBindValue(layer.isPlotOn() ? 1 : 0);
                     query.addBindValue(layer.isLayerLock() ? 1 : 0);
                     query.addBindValue(layer.hasPrintColorOverride() ? layer.printColor().name() : QString());
+                    query.addBindValue(layer.elevation());
+                    query.addBindValue(layer.height());
                     query.exec();
                 }
             }
@@ -918,6 +935,8 @@ QList<CadItem *> FileManager::importBlock(const QString &filePath,
 
         // 1. 레이어 확인/생성
         QSqlQuery layerQuery("SELECT * FROM layers", db);
+        const bool blkHasElevation = layerQuery.record().contains("elevation");
+        const bool blkHasHeight = layerQuery.record().contains("height");
         while (layerQuery.next()) {
             QString name = layerQuery.value("name").toString();
             if (!m_ctx->layerManager()->getLayer(name)) {
@@ -925,6 +944,10 @@ QList<CadItem *> FileManager::importBlock(const QString &filePath,
                 double weight = layerQuery.value("weight").toDouble();
                 QString linetype = layerQuery.value("linetype").toString();
                 Layer newLayer(name, color, weight, linetype);
+                if (blkHasElevation)
+                    newLayer.setElevation(layerQuery.value("elevation").toDouble());
+                if (blkHasHeight)
+                    newLayer.setHeight(layerQuery.value("height").toDouble());
                 m_ctx->layerManager()->addLayer(newLayer);
             }
         }
@@ -999,6 +1022,11 @@ void FileManager::serializeCadItem(CadItem *item, QDataStream &out,
     propObj.insert("weight", pen.widthF());
     propObj.insert("Type", type);
 
+    // [3D 기계용] 투상도로 생성된 선·원의 뷰 UUID (모든 타입)
+    {
+        const QString viewId = item->data(MECH_VIEW_ID).toString();
+        if (!viewId.isEmpty()) propObj.insert("mechViewId", viewId);
+    }
     // [상세도] role/label 태그를 모든 타입에서 보존 → 재로드 후에도 소속 구분 유지
     {
         const QVariant drRole = item->data(DETAIL_REGION_ROLE);
@@ -1026,6 +1054,9 @@ void FileManager::serializeCadItem(CadItem *item, QDataStream &out,
         const QString pdCLine = item->data(PD_DATA_CLOSING_LINE).toString();
         if (!pdGid.isEmpty())   propObj.insert("pdGroupId",    pdGid);
         if (!pdCLine.isEmpty()) propObj.insert("pdClosingLine", pdCLine);
+        // [3D 기계용] 기계 부품 UUID 보존 (볼트 등 선이 기준 도형인 부품)
+        const QString mechLineId = item->data(MECH_DATA_PART_ID).toString();
+        if (!mechLineId.isEmpty()) propObj.insert("mechPartId", mechLineId);
         // [추가] 구멍(Hole) 중심선 그룹 태그 보존 — 저장/로드 후에도 나사규격 등을
         // 바꿀 때 이 중심선을 찾아 길이를 다시 맞출 수 있도록 유지한다.
         const QString holeGid = item->data(HOLE_DATA_GROUP_ID).toString();
@@ -1084,6 +1115,11 @@ void FileManager::serializeCadItem(CadItem *item, QDataStream &out,
         {
             const QString pdGid = item->data(PD_DATA_GROUP_ID).toString();
             if (!pdGid.isEmpty()) propObj.insert("pdGroupId", pdGid);
+        }
+        // [3D 기계용] 기계 부품 UUID 보존 (축 외형선 등)
+        {
+            const QString mechId = item->data(MECH_DATA_PART_ID).toString();
+            if (!mechId.isEmpty()) propObj.insert("mechPartId", mechId);
         }
     } else if (type == "Text") {
         out << item->pos().x() - offset.x() << item->pos().y() - offset.y();
@@ -1154,6 +1190,11 @@ void FileManager::serializeCadItem(CadItem *item, QDataStream &out,
         double patternScale = propObj["Scale"].toDouble();
         double patternAngle = propObj["Angle"].toDouble();
         out << patternName << patternScale << patternAngle;
+        // [3D 기계용] 단면 회전체 UUID 보존
+        {
+            const QString mechId = item->data(MECH_DATA_PART_ID).toString();
+            if (!mechId.isEmpty()) propObj.insert("mechPartId", mechId);
+        }
 
         // ── [신규 통합] 기하공차 및 데이텀 직렬화 ──
     } else if (type == "Gdt") {
@@ -1331,6 +1372,9 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
             const QString pdCLine = propObj["pdClosingLine"].toString();
             if (!pdGid.isEmpty())   newItem->setData(PD_DATA_GROUP_ID,     pdGid);
             if (!pdCLine.isEmpty()) newItem->setData(PD_DATA_CLOSING_LINE, pdCLine);
+            // [3D 기계용] 기계 부품 UUID 복원
+            const QString mechLineId = propObj["mechPartId"].toString();
+            if (!mechLineId.isEmpty()) newItem->setData(MECH_DATA_PART_ID, mechLineId);
             // [추가] 구멍(Hole) 중심선 그룹 태그 복원
             const QString holeGid = propObj["holeGroupId"].toString();
             if (!holeGid.isEmpty()) newItem->setData(HOLE_DATA_GROUP_ID, holeGid);
@@ -1388,6 +1432,9 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
         if (newItem) {
             const QString pdGid = propObj["pdGroupId"].toString();
             if (!pdGid.isEmpty()) newItem->setData(PD_DATA_GROUP_ID, pdGid);
+            // [3D 기계용] 기계 부품 UUID 복원
+            const QString mechId = propObj["mechPartId"].toString();
+            if (!mechId.isEmpty()) newItem->setData(MECH_DATA_PART_ID, mechId);
         }
     } else if (type == "Text") {
         double tx, ty;
@@ -1579,6 +1626,10 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
             if (scale <= 0.0) scale = 1.0;
         }
         newItem = m_ctx->entityFactory()->createHatch(path, pattern, scale, angle, pen);
+        if (newItem) {   // [3D 기계용] 단면 회전체 UUID 복원
+            const QString mechId = propObj["mechPartId"].toString();
+            if (!mechId.isEmpty()) newItem->setData(MECH_DATA_PART_ID, mechId);
+        }
 
         // ── [신규 통합] 기하공차 및 데이텀 역직렬화 ──
     } else if (type == "Gdt") {
@@ -1747,6 +1798,10 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
 
     if (newItem) {
         // [상세도] role/label 태그 복원 (모든 타입 공통)
+        {   // [3D 기계용] 투상도 뷰 UUID
+            const QString viewId = propObj["mechViewId"].toString();
+            if (!viewId.isEmpty()) newItem->setData(MECH_VIEW_ID, viewId);
+        }
         if (propObj.contains("detailRegionRole")) {
             int r = propObj["detailRegionRole"].toInt();
             if (r != 0) newItem->setData(DETAIL_REGION_ROLE, r);

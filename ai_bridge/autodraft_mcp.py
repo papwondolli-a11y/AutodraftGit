@@ -14,6 +14,7 @@ import base64
 import json
 import os
 import sys
+import tempfile
 import time
 
 PIPE_PATH = r"\\.\pipe\AutoDraftAI"
@@ -34,6 +35,8 @@ INSTRUCTIONS_FULL = """AutoDraft(CAD) 조작 도구 사용 규칙.
 [벽 접합 규칙] 벽(다중선)이 만나는 모양에 따라 처리한다. T자(한 벽이 다른 벽을 만나 끝남)는 "합쳐진 T"로 처리한다: 줄기 벽의 벽선은 통과 벽의 가까운 면 선에서 끝나고, 통과 벽의 가까운 면 선은 줄기 벽 폭만큼 끊기며(바깥 쪽 선은 연속), 줄기 벽의 중심선은 통과 벽 중심선까지 이어진다 — 벽선끼리 겹치거나 침범하면 안 된다. 통과 벽은 줄기와 별개의 끊기지 않는 직선 다중선 하나로 그리고(여러 벽을 한 경로/그룹으로 묶지 않는다), 줄기는 통과 벽 중심선까지 겹쳐 그린 뒤 multiline_tcorner(clickA=통과 벽 위의 점, clickB=줄기 벽의 자를 끝 쪽 점)로 처리한다. L자(두 벽이 꺾여 만남)는 multiline_lcorner 를 쓰거나, 처음부터 create_multiline 의 points 한 경로로 이어 그려 코너를 처리한다(바깥 벽선↔바깥, 안쪽↔안쪽). 승강로 입구쪽 벽(문 앞 개구부 양쪽 벽조각)이 대표적이며, 왼쪽은 L, 승강로 반대쪽 벽에 닿는 쪽은 T 이다. 그린 뒤 screenshot 으로 접합부를 확대해 벽선 겹침·틈이 없는지 확인한다.
 [평면 벽 구성 절차] 방이 여러 개인 평면(칸막이가 있는 아파트·사무실 등)은 위 벽 접합 규칙을 반드시 지킨다. build_plan/create_room 이 방마다 사각형 벽을 따로 그리면 칸막이가 두 겹으로 겹치고 접합이 규칙에서 벗어나므로, 이웃한 방끼리 벽을 공유하는 평면은 이 방식으로 벽을 그리지 않는다. 절차: (1) 코어(create_core)만 build_plan 으로 먼저 만든다. (2) 외벽은 create_multiline 한 경로로 그려 L 코너를 처리하고, 복도 등 통과 벽은 끊기지 않는 직선 하나로 그린다. (3) 칸막이(줄기)는 통과 벽의 가까운 면 선에서 끝나게 그리고 T 접합한다. multiline_tcorner 결과는 반드시 확대 screenshot 으로 확인한다 — 가까운 면이 줄기 폭만큼 끊기고 먼 쪽 면이 연속이어야 하는데, 먼 쪽 면이 끊기거나 줄기가 연장되지 않으면 그 T 는 undo 하고, 벽체선/중심선 레이어에 create_line 으로 면 선을 직접 그린다(통과 벽 가까운 면은 줄기 폭 두 조각, 먼 면은 연속, 줄기 벽선은 가까운 면에서 끝, 중심선은 통과 벽 중심선까지). (4) 그다음 방은 별도 group 의 build_plan 으로 walls:[] 를 주어 벽 없이 문·창·실명·치수만 만든다(문·창이 이미 그려진 벽선을 트림한다). 벽을 그릴 때 set_group 으로 이름표를 붙이고, 끝나면 set_group("") 으로 해제한다. 칸막이 없이 이어지는 공간(예: 거실+주방)은 사이 벽을 아예 그리지 않는다. 코어 외벽에 닿는 접합은 코어가 만든 선이라 끊기지 않는다 — 필요하면 해당 선을 edit_entity/create_line 으로 줄기 폭만큼 끊는다.
 [기본 배치] 사용자가 방 배치를 따로 지정하지 않고 32평형 평면도를 그려달라고 하면 build_default_layout 한 번으로 기본 배치(32-test.cdb 를 좌우 반전한 배치: 코어 왼쪽 위·현관=코어 홀 아래·거실 아래 중앙·안방 오른쪽 아래·침실2 왼쪽 아래·침실3/욕실2/드레스룸 오른쪽 위·욕실1 현관 옆·주방&식당 코어 옆으로 거실과 오픈)를 그린다. 벽 접합 규칙은 이미 반영되어 있다. 전체 위치는 origin 으로 옮긴다(도면틀 A2 중앙: [2300,-1100]). 배치를 바꾸라는 요청은 layouts/default_32.json 의 방 사각형·벽 선을 고친 값으로 같은 규칙(위 [평면 벽 구성 절차])에 따라 다시 그린다. 그린 뒤 screenshot 으로 확인하고 면적(㎡·평)을 보고한다.
+[기계부품] create_bolt 로 기계부품 탭의 육각볼트(M3~M42, 호칭길이 L)를 그린다. 크기는 실제 mm 이므로 축척 1:60 도면에서는 작게 보인다 — screenshot 의 region 으로 확대해 확인한다. 직접 선을 그어 볼트를 흉내 내지 않는다.
+[구멍] 구멍은 원(create_circle)으로 흉내 내지 말고 구멍 도구를 쓴다. create_hole(그리기 탭 구멍: at 한 점 + countX/Y·spacingX/Y 격자, 또는 refLine1/refLine2 기준선 두 점 + offsetX/Y 로 모서리 기준 배치), create_hole_polar(구멍 P: anchor 에서 distance 만큼 떨어진 곳에 range·count 원형 배열 = 볼트서클, 또는 refCircle1/2 로 원·호 두 개 선택), create_hole_section(구멍 단면: 이미 그린 구멍의 중심 hole 과 상단면 기준점 at, 깊이 방향 direction(도), 재료 두께 thickness). 구멍 규격은 diameter(드릴 지름), through/depth(관통·막힘), thread("M10x1.5"; diameter 생략 시 탭드릴 지름 = 호칭지름 - 피치), counterbore{diameter,depth}, countersink{diameter,angle}, tolerance("H7"), renderMode(full/right/left), centerline, layers 로 준다. 구멍 단면은 평면의 구멍(create_hole*)이 먼저 있어야 한다. 응답의 paramsUsed 로 실제 값을 확인하고 screenshot 으로 모양을 본다.
 [개별 도구] create_multiline(벽), create_door, create_window, create_stair, create_elevator 는 세부 조정용. 벽(다중선)을 먼저 그린 뒤 문·창을 내야 개구부가 트림된다.
 [도어 종류] create_door(와 방의 doors 항목)의 kind 로 평면도어 탭의 11종을 고른다: single 외여닫이, single113, double 쌍여닫이(width1·width2 로 문1·문2 폭), double114, biswing 양방여닫이, doublebiswing 양방쌍여닫이, revolving 회전문(width=문 크기, wings=날개 수), simple 계열 4종(문틀 없는 단순문). 모든 종류가 같은 hinge/toward/side 입력을 쓴다.
 [창 종류] create_window(와 방의 windows 항목)의 kind 와 sashes 로 평면 창문 탭의 7종을 고른다: sliding(기본) 2/3/4미서기(double=이중창), top 2/3/4상미서기, front 전면창.
@@ -74,7 +77,7 @@ TOOLS = [
     },
     {
         "name": "get_layers",
-        "description": "현재 도면의 레이어 목록(이름, 색, 선두께, 선종류, 켜짐/잠금, 현재 여부).",
+        "description": "현재 도면의 레이어 목록(이름, 색, 선두께, 선종류, 켜짐/잠금, 현재 여부, 기준높이 elevation·높이 height mm).",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -189,6 +192,101 @@ TOOLS = [
             "required": ["p1", "p2"]},
     },
     {
+        "name": "create_bolt",
+        "description": ("기계부품 탭의 육각볼트(KS B 1002) 정면도 기호를 기존 AutoDraft 볼트 도구로 그린다 "
+                        "(입면도: 머리·몸통·모따기·나사 골지름선·중심선, 평면도: 육각형·대변원·중심 십자선). "
+                        "at 은 삽입 기준점(머리/몸통 경계선 중앙), angle 은 볼트가 뻗어나가는 방향(도, 0=+X 오른쪽, "
+                        "90=+Y 위쪽; 머리는 그 반대쪽). 호칭경 diameter(M3~M42)와 호칭길이 length 는 실제 mm 치수이며 "
+                        "도면 축척과 무관하다. 생략한 값은 도면에 저장된 볼트 도구 기본값을 쓴다. "
+                        "length 는 몸통(머리 아래~끝) 길이. fullThread=false 면 부분나사(나사부 b=2d+6 등). "
+                        "응답의 paramsUsed 로 실제 값을 확인. 호출 1회 = 실행 취소 1단계."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": {**POINT, "description": "삽입 기준점 [x, y] (mm) = 머리/몸통 경계선 중앙"},
+            "kind": {"type": "string", "enum": ["hex"], "description": "볼트 종류. 현재 hex(육각볼트)만 지원"},
+            "diameter": {"type": "string", "description": "호칭경 (예: \"M20\"). M3~M42"},
+            "length": {"type": "number", "exclusiveMinimum": 0, "description": "호칭길이 L (mm, 예: 60)"},
+            "angle": {"type": "number", "description": "볼트 방향 각도 (도, 반시계, 기본 0 = +X 방향)"},
+            "fullThread": {"type": "boolean", "description": "true=전나사, false=부분나사"},
+            "centerline": {"type": "boolean", "description": "중심선 그리기"},
+            "sideView": {"type": "boolean", "description": "평면도(육각형·대변원) 그리기"},
+            "outlineLayer": {"type": "string", "description": "외형선 레이어 (생략/빈 문자열 = 현재 레이어)"},
+            "threadLayer": {"type": "string", "description": "골지름선 레이어 (생략/빈 문자열 = 현재 레이어)"}},
+            "required": ["at"]},
+    },
+    {
+        "name": "create_hole",
+        "description": ("그리기 탭의 구멍(드릴/탭/카운터보어/카운터싱크) 객체를 기존 AutoDraft 구멍 도구로 만든다. 원으로 흉내 내지 말 것 — "
+                        "구멍 객체여야 구멍 콜아웃·구멍 단면과 연동된다. 배치 방식 두 가지: (1) at=구멍 중심 [x,y], 필요하면 countX/countY·spacingX/spacingY 로 "
+                        "격자 배열(첫 구멍이 at). (2) refLine1/refLine2=기준선 위의 점 두 개(그 점을 클릭해 선 선택) + offsetX/offsetY: 두 선의 교차점에서 "
+                        "각 선이 뻗은 방향으로 offsetX/offsetY 만큼 안쪽에 배치(모서리 기준 구멍). 지름·탭·카운터보어 등은 실제 mm. "
+                        "응답의 paramsUsed 로 실제 값을 확인. 호출 1회 = 실행 취소 1단계."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": {**POINT, "description": "구멍 중심 [x, y] (mm). refLine1/2 를 쓰면 생략"},
+            "refLine1": {**POINT, "description": "기준선 1(X축 방향) 위의 점 [x, y]"},
+            "refLine2": {**POINT, "description": "기준선 2(Y축 방향) 위의 점 [x, y]"},
+            "offsetX": {"type": "number", "description": "기준선 1 방향으로 교차점에서 떨어진 거리 (mm)"},
+            "offsetY": {"type": "number", "description": "기준선 2 방향으로 교차점에서 떨어진 거리 (mm)"},
+            "countX": {"type": "integer", "minimum": 1, "description": "X 방향 개수 (기본 1)"},
+            "spacingX": {"type": "number", "description": "X 방향 간격 (mm)"},
+            "countY": {"type": "integer", "minimum": 1, "description": "Y 방향 개수 (기본 1)"},
+            "spacingY": {"type": "number", "description": "Y 방향 간격 (mm)"},
+            "diameter": {"type": "number", "exclusiveMinimum": 0, "description": "드릴/구멍 지름 (mm). thread 를 주면 생략 가능(탭드릴 지름 = 호칭지름 - 피치)"},
+            "through": {"type": "boolean", "description": "true=관통(기본), false=막힌 구멍(depth 필요)"},
+            "depth": {"type": "number", "exclusiveMinimum": 0, "description": "막힌 구멍 깊이 (mm)"},
+            "thread": {"type": "string", "description": "탭(나사) 규격 (예: \"M10x1.5\")"},
+            "threadClass": {"type": "string", "description": "나사 등급 (기본 6H)"},
+            "threadDepth": {"type": "number", "exclusiveMinimum": 0, "description": "막힌 탭 구멍의 나사산 깊이 (생략 시 depth - 4x피치)"},
+            "tolerance": {"type": "string", "description": "공차 등급 (예: H7, 리머/정밀구멍)"},
+            "counterbore": {"type": "object", "description": "카운터보어. diameter 생략 시 구멍 지름x1.8, depth 기본 6", "properties": {"diameter": {"type": "number"}, "depth": {"type": "number"}}},
+            "countersink": {"type": "object", "description": "카운터싱크. diameter 생략 시 구멍 지름x1.8, angle 기본 90", "properties": {"diameter": {"type": "number"}, "angle": {"type": "number"}}},
+            "renderMode": {"type": "string", "enum": ["full", "right", "left"], "description": "표시 범위: 전체(기본)/오른쪽 반/왼쪽 반 (판재 모서리·대칭선에 걸친 구멍)"},
+            "centerline": {"type": "boolean", "description": "중심선 십자 그리기 (생략 시 도면 기본값)"},
+            "layers": {"type": "object", "description": "요소별 레이어 (생략 = 도면에 저장된 구멍 도구 기본값/현재 레이어)", "properties": {"base": {"type": "string"}, "thread": {"type": "string"}, "counterbore": {"type": "string"}, "countersink": {"type": "string"}}},}},
+    },
+    {
+        "name": "create_hole_polar",
+        "description": ("구멍 P: 기준점에서 distance 만큼 떨어진 위치에 원형(각도) 배열로 구멍을 만든다(볼트서클). 0도(+X)에서 시작해 count 개; "
+                        "range 가 360이면 count 등분(예: 6개 → 60도 간격), 그 외엔 양 끝점에 첫/마지막 구멍(예: range 90, count 2 → 0도, 90도). "
+                        "배치 방식 두 가지: (1) anchor=배열 중심 [x,y] + distance. (2) refCircle1/refCircle2=기준 원 또는 호 위의 점 두 개(그 점을 클릭해 선택): "
+                        "기준점=두 중심의 중점, distance=두 반지름의 평균(플랜지 외경·내경 사이에 볼트 구멍). 구멍 규격은 create_hole 과 같다. "
+                        "호출 1회 = 실행 취소 1단계."),
+        "inputSchema": {"type": "object", "properties": {
+            "anchor": {**POINT, "description": "원형 배열 중심 [x, y] (mm). refCircle1/2 를 쓰면 생략"},
+            "distance": {"type": "number", "minimum": 0, "description": "중심에서 구멍 중심까지 거리 (mm). anchor 방식에서 필수"},
+            "refCircle1": {**POINT, "description": "기준 원/호 1 위의 점 [x, y]"},
+            "refCircle2": {**POINT, "description": "기준 원/호 2 위의 점 [x, y]"},
+            "range": {"type": "number", "description": "배열 각도 범위 (도, 기본 360)"},
+            "count": {"type": "integer", "minimum": 1, "description": "구멍 개수 (기본 1)"},
+            "diameter": {"type": "number", "exclusiveMinimum": 0, "description": "드릴/구멍 지름 (mm). thread 를 주면 생략 가능(탭드릴 지름 = 호칭지름 - 피치)"},
+            "through": {"type": "boolean", "description": "true=관통(기본), false=막힌 구멍(depth 필요)"},
+            "depth": {"type": "number", "exclusiveMinimum": 0, "description": "막힌 구멍 깊이 (mm)"},
+            "thread": {"type": "string", "description": "탭(나사) 규격 (예: \"M10x1.5\")"},
+            "threadClass": {"type": "string", "description": "나사 등급 (기본 6H)"},
+            "threadDepth": {"type": "number", "exclusiveMinimum": 0, "description": "막힌 탭 구멍의 나사산 깊이 (생략 시 depth - 4x피치)"},
+            "tolerance": {"type": "string", "description": "공차 등급 (예: H7, 리머/정밀구멍)"},
+            "counterbore": {"type": "object", "description": "카운터보어. diameter 생략 시 구멍 지름x1.8, depth 기본 6", "properties": {"diameter": {"type": "number"}, "depth": {"type": "number"}}},
+            "countersink": {"type": "object", "description": "카운터싱크. diameter 생략 시 구멍 지름x1.8, angle 기본 90", "properties": {"diameter": {"type": "number"}, "angle": {"type": "number"}}},
+            "renderMode": {"type": "string", "enum": ["full", "right", "left"], "description": "표시 범위: 전체(기본)/오른쪽 반/왼쪽 반 (판재 모서리·대칭선에 걸친 구멍)"},
+            "centerline": {"type": "boolean", "description": "중심선 십자 그리기 (생략 시 도면 기본값)"},
+            "layers": {"type": "object", "description": "요소별 레이어 (생략 = 도면에 저장된 구멍 도구 기본값/현재 레이어)", "properties": {"base": {"type": "string"}, "thread": {"type": "string"}, "counterbore": {"type": "string"}, "countersink": {"type": "string"}}},}},
+    },
+    {
+        "name": "create_hole_section",
+        "description": ("구멍 단면: 이미 도면에 있는 구멍(create_hole/create_hole_polar 로 만든 구멍 객체)의 규격으로 단면(측면) 프로파일 선들을 그린다 "
+                        "(기본 구멍·탭 나사선·카운터보어·카운터싱크·중심선). 평면도 구멍과 연동되지 않는 일반 선이 만들어지지만 구멍 수정 시 재생성 태그가 붙는다. "
+                        "hole=단면으로 그릴 구멍의 중심, at=단면 상단면(구멍이 시작되는 면) 기준점, direction=상단면에서 재료 안쪽으로 향하는 깊이 방향 각도 "
+                        "(도, 0=+X, 90=+Y, 270=아래), thickness=관통 구멍일 때 재료 두께(mm, 생략 시 구멍 지름 — 반드시 실제 두께를 줄 것)/막힌 탭 구멍이면 탭 깊이(생략 시 구멍의 값). "
+                        "hiddenLayer 를 주면 중심선을 뺀 모든 선을 그 레이어(숨은선)로 그린다. 구멍 객체가 없으면 실패한다(원은 구멍이 아님). "
+                        "호출 1회 = 실행 취소 1단계."),
+        "inputSchema": {"type": "object", "properties": {
+            "hole": {**POINT, "description": "단면으로 표현할 기존 구멍의 중심 [x, y] (mm)"},
+            "at": {**POINT, "description": "단면 상단면 기준점 [x, y] (mm)"},
+            "direction": {"type": "number", "description": "깊이 방향 각도 (도, 0=+X, 90=+Y, 270=아래)"},
+            "thickness": {"type": "number", "exclusiveMinimum": 0, "description": "관통=재료 두께(mm), 막힘=탭 깊이(mm)"},
+            "hiddenLayer": {"type": "string", "description": "숨은선 레이어 (지정하면 중심선 제외 모든 선을 이 레이어로)"}},
+            "required": ["hole", "at", "direction"]},
+    },
+    {
         "name": "create_door",
         "description": ("평면 도어(문틀, 문짝, 열림 호)를 기존 AutoDraft '평면도어' 탭의 도어 도구로 그린다. 종류는 kind 로 고른다: "
                         "single 외여닫이(기본), single113 외여닫이-113(30도 열린 문짝), double 쌍여닫이, double114 쌍여닫이-114, "
@@ -217,7 +315,11 @@ TOOLS = [
                        "description": "문2 폭 (mm). double, double114, doublebiswing 에서만. width 와 함께 쓰지 말 것"},
             "wings": {"type": "integer", "enum": [3, 4], "description": "회전문(revolving) 날개 수 (기본 도면 설정)"},
             "style": {"type": "integer", "enum": [0, 1],
-                      "description": "kind 대신 쓰는 옛 방식. 1 = single→single113, double→double114"}},
+                      "description": "kind 대신 쓰는 옛 방식. 1 = single→single113, double→double114"},
+            "sillHeight": {"type": "number", "minimum": 0,
+                           "description": "3D 개구부 하단높이 (mm, 바닥에서). 생략하면 문틀 레이어의 3D 기준높이(미설정 시 0)"},
+            "openingHeight": {"type": "number", "exclusiveMinimum": 0,
+                              "description": "3D 개구부 높이 (mm). 생략하면 문틀 레이어의 3D 높이(미설정 시 2100)"}},
             "required": ["hinge", "toward"]},
     },
     {
@@ -237,7 +339,11 @@ TOOLS = [
             "kind": {"type": "string", "enum": ["sliding", "top", "front"],
                      "description": "sliding = 미서기(기본), top = 상미서기(상단부만), front = 전면창(2짝 기준)"},
             "sashes": {"type": "integer", "enum": [2, 3, 4], "description": "창짝 수 (기본 2). front 에서는 지정하지 않는다"},
-            "double": {"type": "boolean", "description": "true = 이중창, false = 단창. 생략하면 도면 기본값. kind=sliding 에서만"}},
+            "double": {"type": "boolean", "description": "true = 이중창, false = 단창. 생략하면 도면 기본값. kind=sliding 에서만"},
+            "sillHeight": {"type": "number", "minimum": 0,
+                           "description": "3D 창대(개구부 하단) 높이 (mm). 생략하면 창틀 레이어의 3D 기준높이(미설정 시 900)"},
+            "openingHeight": {"type": "number", "exclusiveMinimum": 0,
+                              "description": "3D 창 높이 (mm). 생략하면 창틀 레이어의 3D 높이(미설정 시 1200)"}},
             "required": ["hinge", "toward"]},
     },
     {
@@ -528,6 +634,7 @@ TOOLS = [
         "name": "create_layer",
         "description": ("레이어 도크의 [만들기]: 새 레이어를 만든다. name(이름, 필수·중복 불가), color(\"#rrggbb\" 또는 red/yellow/cyan 같은 색 이름, 기본 흰색), "
                         "weight(선두께 mm, 도면 선두께 목록의 값만, 기본 0.25), linetype(등록된 선종류 이름, 기본 Continuous; 없는 이름이면 등록된 목록을 알려줌), "
+                        "elevation(기준높이 mm, 바닥면 Z, 기본 0)·height(높이 mm, 예: 벽 2400, 기본 0)는 3D 보기·물량·단면에 쓰인다. "
                         "makeCurrent true 면 만든 레이어를 현재 레이어로 설정. 만든 뒤 create_* 도구의 layer 인자로 이름을 쓰면 된다. "
                         "이미 있는 이름이면 오류와 함께 그 레이어의 설정을 알려준다. 레이어 추가는 실행 취소(undo) 대상이 아니다."),
         "inputSchema": {"type": "object", "properties": {
@@ -535,8 +642,175 @@ TOOLS = [
             "color": {"type": "string", "description": "색: #rrggbb 또는 색 이름 (기본 #ffffff)"},
             "weight": {"type": "number", "exclusiveMinimum": 0, "description": "선두께 mm (목록의 값, 기본 0.25)"},
             "linetype": {"type": "string", "description": "선종류 이름 (기본 Continuous)"},
-            "makeCurrent": {"type": "boolean", "description": "만든 레이어를 현재 레이어로 (기본 false)"}},
+            "makeCurrent": {"type": "boolean", "description": "만든 레이어를 현재 레이어로 (기본 false)"},
+            "elevation": {"type": "number", "description": "기준높이 mm (바닥면 Z, 기본 0)"},
+            "height": {"type": "number", "description": "높이 mm (기준높이에서 위로, 기본 0)"}},
             "required": ["name"]},
+    },
+    {
+        "name": "set_layer_height",
+        "description": ("기존 레이어의 3D 높이를 정한다 (메뉴 3D Layer > 레이어 높이 설정과 같음). elevation = 기준높이(바닥면 Z, mm), "
+                        "height = 높이(mm, 0 = 높이 없음). 벽 레이어에 높이를 주면 get_model_3d 에서 벽으로 돌출된다. "
+                        "문·창 틀 레이어의 값은 새로 배치하는 문·창의 하단높이/개구부 높이 기본값이 된다."),
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "레이어 이름"},
+            "elevation": {"type": "number", "description": "기준높이 mm"},
+            "height": {"type": "number", "minimum": 0, "description": "높이 mm"}},
+            "required": ["name"]},
+    },
+    {
+        "name": "get_model_3d",
+        "description": ("현재 도면에서 3D 건물 모델을 추출한다(읽기 전용). 높이(height>0)가 있고 켜진 레이어의 선으로 닫힌 영역을 찾아 "
+                        "벽/빈 공간을 판정하고, 문·창 개구부 위·아래 벽(창대 아래·인방)을 만든다. 응답: perLayer(레이어별 벽 개수·바닥면적 m²·체적 m³), "
+                        "openings(문·창 폭·하단높이·높이·붙은 벽), warnings(벽 끝이 닫히지 않은 곳 등 위치), summary(사람이 읽는 요약). "
+                        "includeGeometry=true 면 solids(바닥 다각형 rings·z0·z1)와 개구부 footprint 도 돌려준다(maxSolids 개까지, 기본 50)."),
+        "inputSchema": {"type": "object", "properties": {
+            "includeGeometry": {"type": "boolean", "description": "형상 좌표 포함 (기본 false)"},
+            "maxSolids": {"type": "integer", "minimum": 1, "description": "형상을 돌려줄 최대 덩어리 수 (기본 50)"}}},
+    },
+    {
+        "name": "view_3d",
+        "description": ("메뉴 3D Layer > 3D 보기 창을 열고(이미 열려 있으면 재사용) 현재 도면의 3D 모델을 다시 만들어 화면을 PNG 로 저장한다. "
+                        "preset = iso(등각, 기본) | top(평면) | front(정면, 남쪽에서) | side(측면, 동쪽에서). yaw/pitch(도)로 방향을 직접 줄 수도 있다. "
+                        "돌려준 path 의 이미지를 읽어 벽·개구부 모양을 확인한다. 벽 레이어 높이가 없으면 빈 화면이다(set_layer_height 먼저)."),
+        "inputSchema": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["architecture", "mechanical"],
+                     "description": "architecture(기본) = 3D 건축용(레이어 높이로 벽), mechanical = 3D 기계용(기계 Tools 축 등 파라메트릭 부품)"},
+            "preset": {"type": "string", "enum": ["iso", "top", "front", "side"]},
+            "yaw": {"type": "number", "description": "카메라 방위각 (도, 0 = 동쪽에서, -90 = 남쪽에서)"},
+            "pitch": {"type": "number", "description": "카메라 높이각 (도, 0 = 수평, 89 = 위에서)"},
+            "parts": {"type": "array", "items": {"type": "string"},
+                      "description": "mechanical 전용: 보일 부품 이름 (예 [\"축-1\",\"6904-1\"]). 생략하면 전체. 응답 visibleParts 로 확인"}}},
+    },
+    {
+        "name": "export_3d_obj",
+        "description": ("현재 도면의 3D 모델을 OBJ(+MTL) 파일로 저장한다(단위 m, 평면 중심이 원점, Blender 기본 OBJ 가져오기에서 Z 위쪽). "
+                        "객체는 벽_<레이어>, 개구부벽_<레이어>, 창유리. 같은 폴더에 Blender 가져오기 스크립트(<이름>_blender.py)도 만든다. "
+                        "openBlender=true 면 설치된 Blender 를 띄워 바로 연다. path 생략 시 임시 폴더."),
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "저장할 .obj 경로 (생략 시 %TEMP%/AutoDraft3D/autodraft_model.obj)"},
+            "openBlender": {"type": "boolean", "description": "저장 후 Blender 로 열기 (기본 false)"},
+            "mode": {"type": "string", "enum": ["architecture", "mechanical"],
+                     "description": "architecture(기본) = 벽, mechanical = 기계 부품(키홈은 Blender 불리언으로 파냄)"},
+            "radialSteps": {"type": "integer", "description": "기계 부품 원 둘레 분할 수 32~512 (기본 64, 저장됨). 간섭 검사 정밀도: Ø20 기준 64→0.012mm, 128→0.003mm, 256→0.0008mm"},
+            "parts": {"type": "array", "items": {"type": "string"},
+                      "description": "mechanical 전용: 내보낼 부품 이름(커터·합침은 자동 포함). 생략하면 전체. 응답 allParts 에 전체 이름"}}},
+    },
+    {
+        "name": "create_shaft",
+        "description": ("기계 Tools 의 축(계단축)을 설정창 없이 배치한다(외형·중심선·치수). at = 왼쪽 끝면 중심, 축선은 수평(+X). "
+                        "segments = 왼쪽부터 구간 [{diameter, length, chamferLeft, chamferRight, fit}] (생략 시 예시 138mm 축). "
+                        "키홈은 구간마다 segments[i].keyway = {type:'open'(끝 열림, 첫/마지막 구간만)|'closed'(양끝 반원), "
+                        "ref:'center'|'left'|'right'(구간 중앙/왼쪽 면/오른쪽 면 기준, 끝 열림은 열린 쪽), offset(기준면→홈 가까운 끝), "
+                        "length(반원 포함 전체), width·depth(생략 시 KS 평행키 표준), center, section}. "
+                        "나사부는 축 끝에만: thread = {side:'none'|'left'|'right'|'both', length, pitch(0=표준), left:{length,pitch}, right:{...}}. "
+                        "옛 형식 leftEnd/rightEnd({type:'keyway'|'thread',...})도 받는다. "
+                        "배치하면 3D 기계용 파라미터가 함께 저장되어 view_3d/export_3d_obj 의 mode='mechanical' 로 3D 를 볼 수 있다."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": POINT,
+            "segments": {"type": "array", "items": {"type": "object", "properties": {
+                "diameter": {"type": "number"}, "length": {"type": "number"},
+                "chamferLeft": {"type": "number"}, "chamferRight": {"type": "number"},
+                "fit": {"type": "string"}, "keyway": {"type": "object"}}}},
+            "thread": {"type": "object"},
+            "leftEnd": {"type": "object"},
+            "rightEnd": {"type": "object"},
+            "dimensions": {"type": "boolean", "description": "지름·길이 치수 기입 (기본 true)"}},
+            "required": ["at"]},
+    },
+    {
+        "name": "create_bearing",
+        "description": ("기계 Tools 의 깊은 홈 볼베어링(단면도)을 설정창 없이 배치한다. at = 베어링 중심(축선 위, 폭 가운데), "
+                        "angle = 축선 방향(도, 0 = +X). name = 호칭번호(69 계열 693~6940, 예 '6904') 또는 d/D/B/r(mm) 직접. "
+                        "배치하면 3D 기계용 파라미터가 저장되어 view_3d/export_3d_obj mode='mechanical' 로 내·외륜+볼 3D 를 볼 수 있다. "
+                        "축에 끼울 때는 베어링 중심을 축선 위, 안지름 d = 축 지름인 구간에 둔다."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": POINT,
+            "angle": {"type": "number"},
+            "name": {"type": "string", "description": "호칭번호 (예 6904)"},
+            "d": {"type": "number"}, "D": {"type": "number"}, "B": {"type": "number"}, "r": {"type": "number"},
+            "dimensions": {"type": "boolean"}},
+            "required": ["at"]},
+    },
+    {
+        "name": "create_revolve",
+        "description": ("3D 기계용 '단면 회전체 만들기': 이미 그린 해칭(단면)을 회전축(중심선) 둘레로 돌린 회전체로 등록한다(하우징·커버·플랜지 등). "
+                        "hatchAt = 해칭 안쪽 점 목록 [[x,y],…](여러 해칭 가능, 축 양쪽이 해칭된 전단면이면 한쪽만 자동 사용), axis = 회전축 두 점. "
+                        "fits = 원통면 끼워맞춤 [{hole:true, diameter:37, fit:'H7'}] (hole=true 구멍면, false 바깥면). "
+                        "응답 cylinders 에 자동으로 찾은 원통면. 3D 는 view_3d/export_3d_obj mode='mechanical'."),
+        "inputSchema": {"type": "object", "properties": {
+            "hatchAt": {"type": "array", "items": POINT},
+            "area": {"type": "object", "description": "해칭 대신 해치 명령처럼 공간 고르기: {box:[x,y,폭,높이] 경계 후보 사각, picks:[[x,y],…] 내부 점(생략=복합모양)}. 선을 고치면 3D 가 따라감"},
+            "axis": {"type": "array", "items": POINT, "minItems": 2, "maxItems": 2},
+            "name": {"type": "string"},
+            "mirror": {"type": "boolean", "description": "반단면만 그렸을 때 중심선 반대쪽에 대칭 단면 생성 (기본 true)"},
+            "side": {"type": "string", "enum": ["auto", "upper", "lower"],
+                     "description": "축 위·아래 단면이 다를 때 쓸 쪽 (upper = 축 방향 왼쪽/도면 위)"},
+            "fits": {"type": "array", "items": {"type": "object", "properties": {
+                "hole": {"type": "boolean"}, "diameter": {"type": "number"}, "fit": {"type": "string"}}}}},
+            "required": ["axis"]},
+    },
+    {
+        "name": "create_projection",
+        "description": ("3D 데이터가 있는 기계 부품(단면 회전체·축·깊은홈볼베어링)의 투상도를 그린다. part = 부품 이름(예 '하우징-1'), "
+                        "kind = left(좌측면)|right(우측면)|top(평면/외형), at = 놓을 점. 측면도는 축선 위(at 를 축선에 투영), "
+                        "평면도는 축과 나란히(at 까지 수직 이동)로 정면과 자동 정렬. 보이는 선 = 현재 레이어, 숨은선 = '숨은선' 레이어, 중심선."),
+        "inputSchema": {"type": "object", "properties": {
+            "part": {"type": "string"}, "kind": {"type": "string", "enum": ["left", "right", "top"]}, "at": POINT,
+            "hidden": {"type": "boolean", "description": "숨은선(점선)도 그리기 (기본 false)"}},
+            "required": ["part", "at"]},
+    },
+    {
+        "name": "create_extrude",
+        "description": ("3D 기계용 '돌출': 단면 회전체의 좌·우측면도에 그린 닫힌 공간(투상 원도 경계)을 축 방향으로 돌출한다(받침대 등). "
+                        "area = {box:[x,y,폭,높이] 경계 후보 사각, picks:[[x,y],…] 내부 점(생략 = 복합모양)}, "
+                        "offset = 그 측면 쪽 부품 끝면에서 시작 거리, depth = 깊이, merge = 부품에 합치기(기본 true), name. "
+                        "3D·다른 투상도가 자동 갱신된다."),
+        "inputSchema": {"type": "object", "properties": {
+            "area": {"type": "object"}, "name": {"type": "string"},
+            "offset": {"type": "number"}, "depth": {"type": "number"}, "merge": {"type": "boolean"}},
+            "required": ["area", "depth"]},
+    },
+    {
+        "name": "depth_move",
+        "description": ("3D 기계용 '깊이(이동)': at 의 부품(정면도 단면 회전체·돌출 선, 측면도 돌출 공간)을 축 방향으로 옮겨 "
+                        "기준면(ref 점의 축 방향 위치)에서 depth 만큼 떨어지게 한다(기준 쪽 끝면 기준). "
+                        "돌출은 시작 거리만, 단면 회전체는 해칭·단면 경계선을 옮기고 투상도를 다시 그린다(측면도는 제자리)."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": POINT, "ref": POINT, "depth": {"type": "number"}},
+            "required": ["at", "ref"]},
+    },
+    {
+        "name": "regen_projections",
+        "description": "모든 투상도를 지우고 부품의 현재 모양(해칭을 고친 뒤 등)으로 다시 그린다.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "blender_interference",
+        "description": ("[Blender로 열기]로 띄운 Blender 에서 보이는 부품끼리 간섭 검사를 한다(Blender 에서 옮겨 조립한 현재 위치 기준). "
+                        "결과 kind: '간섭'(겹친 체적 volume_mm3·두께 depth_mm, Blender 에 빨간 객체로 표시), "
+                        "'접촉'(맞닿음 — 원을 다각형으로 만든 오차 allow_mm 이내), '틈새'(near_mm 안의 틈 gap_mm). "
+                        "끼워맞춤: 같은 축·같은 호칭 지름으로 맞닿는 축 면↔구멍 면은 공차(축 구간 fit 기호, 베어링 0급 안지름·바깥지름)로 계산해 "
+                        "'억지'(빨강, 죔새)·'중간'(보라)·'헐거움'(파랑, 틈새) 과 clearance_min_mm/clearance_max_mm(지름 기준, 음수 = 죔새)를 준다. "
+                        "정밀도는 export_3d_obj radialSteps 로 올린다. "
+                        "사용자는 Blender N 패널 'AutoDraft' 탭의 [간섭 검사] 버튼으로도 실행할 수 있다."),
+        "inputSchema": {"type": "object", "properties": {
+            "tolMm": {"type": "number", "description": "다각형 오차에 더해 접촉으로 볼 겹침 두께 mm (기본 0)"},
+            "nearMm": {"type": "number", "description": "이 거리 안의 틈을 '틈새'로 보고 (기본 1)"},
+            "mark": {"type": "boolean", "description": "간섭 부분을 빨간 객체로 남김 (기본 true)"},
+            "screenshot": {"type": "boolean", "description": "검사 후 Blender 3D 뷰 화면 첨부 (기본 false)"}}},
+    },
+    {
+        "name": "blender_exec",
+        "description": ("AutoDraft 3D 보기 창의 [Blender로 열기](또는 export_3d_obj openBlender=true)로 띄운 Blender 안에서 Python(bpy) 코드를 실행한다. "
+                        "print 출력이 output 으로 돌아온다. 도우미: view3d_override()(3D 뷰 컨텍스트 dict, bpy.ops 에 temp_override 로 사용), "
+                        "view3d_space()(3D 뷰 SpaceView3D, 예: view3d_space().shading.type='MATERIAL'), screenshot(path). "
+                        "변수는 호출 사이에 유지된다. 객체 이름: 벽_<레이어>, 개구부벽_<레이어>, 창유리, 바닥. 단위 m, Z 위. "
+                        "screenshot=true 면 실행 후 3D 뷰 화면을 이미지로 첨부한다. 실행 취소는 Blender 의 Ctrl+Z 가 아닌 코드로 되돌려야 하니 큰 변경 전 상태를 확인하라."),
+        "inputSchema": {"type": "object", "properties": {
+            "code": {"type": "string", "description": "실행할 bpy 코드"},
+            "screenshot": {"type": "boolean", "description": "실행 후 Blender 3D 뷰 화면 첨부 (기본 false)"}},
+            "required": ["code"]},
     },
     {
         "name": "open_drawing",
@@ -789,6 +1063,64 @@ def instructions_text():
     return INSTRUCTIONS_NEUTRAL if experiment_mode() else INSTRUCTIONS_FULL
 
 
+def blender_exec(arguments):
+    """AutoDraft 가 띄운 Blender 에 bpy 코드를 보내 실행 (blender_bridge.py). screenshot=true 면 3D 뷰 화면도 첨부."""
+    import blender_bridge  # 같은 폴더
+    code = arguments.get("code", "")
+    shot_path = None
+    if arguments.get("screenshot"):
+        shot_path = os.path.join(tempfile.gettempdir(), "AutoDraft3D", "blender_view.png")
+        code += "\nscreenshot(%r)\n" % shot_path
+    try:
+        response = blender_bridge.run(code)
+    except ConnectionError as exc:
+        return tool_result({"ok": False, "error": str(exc)})
+    result = tool_result(response)
+    if response.get("ok") and shot_path:
+        try:
+            with open(shot_path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            result["content"].append({"type": "image", "data": data, "mimeType": "image/png"})
+        except OSError:
+            pass
+    return result
+
+
+def blender_interference(arguments):
+    """Blender 가져오기 스크립트에 들어 있는 autodraft_interference() 를 실행해 결과 목록을 돌려준다."""
+    code = ("import json as _j\n"
+            "_r = autodraft_interference(tol_mm=%r, near_mm=%r, mark=%r, quiet=True)\n"
+            "print('AUTODRAFT_RESULT ' + _j.dumps(_r, ensure_ascii=False))\n") % (
+        float(arguments.get("tolMm", 0.0)), float(arguments.get("nearMm", 1.0)), bool(arguments.get("mark", True)))
+    result = blender_exec({"code": code, "screenshot": arguments.get("screenshot", False)})
+    text = result["content"][0]["text"]
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return result
+    if not body.get("ok"):
+        if "autodraft_interference" in (body.get("error") or ""):
+            body["error"] = ("이 Blender 는 간섭 검사 기능이 없는 이전 스크립트로 열렸습니다. "
+                             "AutoDraft 3D 보기에서 [Blender로 열기]를 다시 누르세요.")
+            result["content"][0]["text"] = json.dumps(body, ensure_ascii=False)
+        return result
+    items = []
+    for line in (body.get("output") or "").splitlines():
+        if line.startswith("AUTODRAFT_RESULT "):
+            items = json.loads(line[len("AUTODRAFT_RESULT "):])
+    counts = {}
+    for x in items:
+        counts[x.get("kind")] = counts.get(x.get("kind"), 0) + 1
+    summary = {"ok": True,
+               "clashes": counts.get("간섭", 0),
+               "contacts": counts.get("접촉", 0),
+               "gaps": counts.get("틈새", 0),
+               "fits": {k: counts.get(k, 0) for k in ("억지", "중간", "헐거움")},
+               "results": items}
+    result["content"][0]["text"] = json.dumps(summary, ensure_ascii=False)
+    return result
+
+
 def tool_result(response):
     ok = bool(response.get("ok"))
     body = {k: v for k, v in response.items() if k != "id"}
@@ -805,13 +1137,17 @@ def handle_call(name, arguments):
             return tool_result(build_default_layout(arguments))
         except (OSError, ValueError) as exc:
             return tool_result({"ok": False, "error": "기본 배치 파일을 읽지 못했습니다: %s" % exc})
+    if name == "blender_exec":
+        return blender_exec(arguments)
+    if name == "blender_interference":
+        return blender_interference(arguments)
     try:
         response = CONNECTION.call(name, arguments)
     except ConnectionError as exc:
         return tool_result({"ok": False, "error": str(exc)})
     result = tool_result(response)
     # screenshot 은 이미지를 결과에 직접 실어 보낸다 (데스크톱 앱의 Claude 는 로컬 파일을 열 수 없다)
-    image_path = response.get("path") if name == "screenshot" else response.get("sheetPath")
+    image_path = response.get("path") if name in ("screenshot", "view_3d") else response.get("sheetPath")
     if response.get("ok") and image_path:
         try:
             with open(image_path, "rb") as f:

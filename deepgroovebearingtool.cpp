@@ -1,4 +1,5 @@
 #include "deepgroovebearingtool.h"
+#include "bearinglayer.h"
 #include "cadcommands.h"
 #include "caditem.h"
 #include "commanddock.h"
@@ -11,7 +12,9 @@
 #include "layermanager.h"
 #include "mygraphicsscene.h"
 #include "snapmanager.h"
+#include "bearingrotation.h"
 #include "tooldefaults.h"
+#include "mechparttag.h"
 
 #include <QKeyEvent>
 #include <QPen>
@@ -120,6 +123,25 @@ MyDimension makeHorizontalDim(const QPointF &a, const QPointF &b, double lineY) 
 
 }
 
+namespace {
+void rotateGeometry(BearingGeometry &g, const QPointF &o, double deg) {
+    if (qAbs(deg) < 1e-9) return;
+    BearingRotation::Rot r(o, deg);
+    BearingHalfShape *hs[2] = {&g.upper, &g.lower};
+    for (int i = 0; i < 2; ++i) {
+        BearingRotation::rotVecs(hs[i]->outline, r);
+        hs[i]->ballCenter = r.pt(hs[i]->ballCenter);
+        BearingRotation::rotLines(hs[i]->seatLines, r);
+        BearingRotation::rotLine(hs[i]->crossH, r);
+        BearingRotation::rotLine(hs[i]->crossV, r);
+        BearingRotation::rotPath(hs[i]->hatchPath, r);
+    }
+    BearingRotation::rotLine(g.centerLine, r);
+    BearingRotation::rotLines(g.connLines, r);
+    BearingRotation::rotDims(g.dims, r, deg);
+}
+}
+
 DeepGrooveBearingTool::DeepGrooveBearingTool(QObject *parent)
     : AbstractTool(parent)
 {}
@@ -165,9 +187,10 @@ BearingGeometry DeepGrooveBearingTool::build(const DeepGrooveBearingParams &p, c
     return g;
 }
 
-QPainterPath DeepGrooveBearingTool::buildPath(const DeepGrooveBearingParams &p, const QPointF &o) {
+QPainterPath DeepGrooveBearingTool::buildPath(const DeepGrooveBearingParams &p, const QPointF &o, double angleDeg) {
     QPainterPath path;
-    const BearingGeometry g = build(p, o);
+    BearingGeometry g = build(p, o);
+    rotateGeometry(g, o, angleDeg);
     if (g.upper.outline.empty()) return path;
     path.addPath(g.upper.hatchPath);
     path.addPath(g.lower.hatchPath);
@@ -191,8 +214,26 @@ QPainterPath DeepGrooveBearingTool::buildPath(const DeepGrooveBearingParams &p, 
     return path;
 }
 
+bool DeepGrooveBearingTool::s_headless = false;
+DeepGrooveBearingParams DeepGrooveBearingTool::s_headlessParams;
+
+void DeepGrooveBearingTool::setHeadlessParams(const DeepGrooveBearingParams &params) {
+    s_headlessParams = params;
+    s_headless = true;
+}
+
+void DeepGrooveBearingTool::clearHeadless() {
+    s_headless = false;
+}
+
 void DeepGrooveBearingTool::activate(MyGraphicsScene *scene) {
     AbstractTool::activate(scene);
+
+    if (s_headless) {               // 자동 배치(MCP): 설정창 없이 바로 위치 입력 단계
+        m_params = s_headlessParams;
+        showPositionPrompt();
+        return;
+    }
 
     ToolDefaults defaults(kToolNamespace, scene);
     DeepGrooveBearingParams saved;
@@ -286,10 +327,11 @@ void DeepGrooveBearingTool::placeAt(const QPointF &origin) {
     if (m_cancelled) return;
     if (!m_scene || !ctx || !ctx->entityFactory() || !ctx->layerManager()) return;
 
-    const BearingGeometry g = build(m_params, origin);
+    BearingGeometry g = build(m_params, origin);
+    rotateGeometry(g, origin, m_angleDeg);
     if (g.upper.outline.empty()) return;
 
-    const QString bodyLayer = QString::fromLatin1(kLayerBody);
+    const QString bodyLayer = BearingLayer::bodyLayer(m_scene);
     ensureLayer(ctx, bodyLayer, QColor(255, 255, 255), QStringLiteral("Continuous"));
 
     QString centerLayer = DrawingSettingsCommand::s_centerLineLayer;
@@ -322,7 +364,21 @@ void DeepGrooveBearingTool::placeAt(const QPointF &origin) {
     const BearingHalfShape *halves[2] = {&g.upper, &g.lower};
     for (int i = 0; i < 2; ++i) {
         const BearingHalfShape &h = *halves[i];
-        finalizeItem(ef->createPolyline(h.outline, true, bodyPen, h.bulges), bodyLayer);
+        QGraphicsItem *outlineItem = ef->createPolyline(h.outline, true, bodyPen, h.bulges);
+        if (i == 0 && outlineItem) {
+            // [3D 기계용] 규격을 저장하고 위쪽 단면 외형에 부품 UUID 를 붙인다
+            QMap<QString, QVariant> props;
+            props[QStringLiteral("Name")] = m_params.name;
+            props[QStringLiteral("d")] = m_params.d;
+            props[QStringLiteral("D")] = m_params.D;
+            props[QStringLiteral("B")] = m_params.B;
+            props[QStringLiteral("r")] = m_params.r;
+            MechPartTag::registerPart(m_scene, undo, outlineItem, QStringLiteral("MechDeepGrooveBearing"),
+                                      tr("베어링%1").arg(m_params.name.isEmpty() ? QString()
+                                                                             : QStringLiteral(" ") + m_params.name),
+                                      props, origin, m_angleDeg);
+        }
+        finalizeItem(outlineItem, bodyLayer);
         finalizeItem(ef->createCircle(h.ballCenter, h.ballRadius, bodyPen), bodyLayer);
         for (int k = 0; k < h.seatLines.size(); ++k)
             finalizeItem(ef->createLine(h.seatLines.at(k), bodyPen), bodyLayer);
@@ -353,11 +409,70 @@ void DeepGrooveBearingTool::placeAt(const QPointF &origin) {
     showPositionPrompt();
 }
 
+void DeepGrooveBearingTool::startAngleStep(const QPointF &origin) {
+    m_baseOrigin = origin;
+    m_awaitAngle = true;
+    IAppContext *ctx = getContext();
+    if (ctx && ctx->commandDock()) {
+        ctx->commandDock()->showInteractivePrompt(
+            tr(" 회전 각도 지정 (클릭=방향, 각도 입력, Enter=0°, F8=직교, Esc=취소): "), {});
+    }
+}
+
+void DeepGrooveBearingTool::finishAngleStep(double angleDeg) {
+    if (!m_awaitAngle) return;
+    m_awaitAngle = false;
+    m_angleDeg = angleDeg;
+    if (m_scene) {
+        m_scene->setGhostPath(QPainterPath(), false);
+        m_scene->clearOverlay();
+    }
+    placeAt(m_baseOrigin);
+    m_angleDeg = 0.0;
+}
+
+void DeepGrooveBearingTool::cancelAngleStep() {
+    m_awaitAngle = false;
+    if (m_scene) {
+        m_scene->setGhostPath(QPainterPath(), false);
+        m_scene->clearOverlay();
+    }
+    showPositionPrompt();
+}
+
+double DeepGrooveBearingTool::angleFromPoint(const QPointF &p) const {
+    const QPointF d = p - m_baseOrigin;
+    if (qAbs(d.x()) < 1e-9 && qAbs(d.y()) < 1e-9) return 0.0;
+    return qRadiansToDegrees(qAtan2(d.y(), d.x()));
+}
+
 bool DeepGrooveBearingTool::processCommand(const QString &command) {
     if (m_cancelled) return true;
     const QString cmd = command.trimmed();
     IAppContext *ctx = getContext();
     if (!ctx) return false;
+
+    if (m_awaitAngle) {
+        if (cmd.isEmpty()) {
+            finishAngleStep(0.0);
+            return true;
+        }
+        bool ok = false;
+        const double ang = cmd.toDouble(&ok);
+        if (ok) {
+            finishAngleStep(ang);
+            return true;
+        }
+        if (ctx->parser()) {
+            QPointF resultPos;
+            const bool ortho = ctx->snapManager() && ctx->snapManager()->isOrtho();
+            if (ctx->parser()->parseCoordinate(cmd, m_baseOrigin, m_baseOrigin, ortho, resultPos)) {
+                finishAngleStep(angleFromPoint(resultPos));
+                return true;
+            }
+        }
+        return false;
+    }
 
     if (cmd.isEmpty()) {
         finishTool();
@@ -366,7 +481,7 @@ bool DeepGrooveBearingTool::processCommand(const QString &command) {
     if (ctx->parser()) {
         QPointF resultPos;
         if (ctx->parser()->parseCoordinate(cmd, QPointF(0, 0), QPointF(0, 0), false, resultPos)) {
-            placeAt(resultPos);
+            startAngleStep(resultPos);
             return true;
         }
     }
@@ -376,17 +491,24 @@ bool DeepGrooveBearingTool::processCommand(const QString &command) {
 void DeepGrooveBearingTool::mousePress(QPointF pos, Qt::MouseButton button) {
     if (!m_scene || m_cancelled) return;
     if (button == Qt::RightButton) {
-        finishTool();
+        if (m_awaitAngle) cancelAngleStep();
+        else              finishTool();
         return;
     }
     if (button != Qt::LeftButton) return;
 
     IAppContext *ctx = getContext();
     QPointF snappedPos = pos;
+    if (m_awaitAngle) {
+        if (ctx && ctx->snapManager())
+            snappedPos = ctx->snapManager()->snapPoint(pos, m_scene, m_baseOrigin).snappedPos;
+        finishAngleStep(angleFromPoint(snappedPos));
+        return;
+    }
     if (ctx && ctx->snapManager()) {
         snappedPos = ctx->snapManager()->snapPoint(pos, m_scene, QPointF()).snappedPos;
     }
-    placeAt(snappedPos);
+    startAngleStep(snappedPos);
 }
 
 void DeepGrooveBearingTool::mouseMove(QPointF pos) {
@@ -395,6 +517,18 @@ void DeepGrooveBearingTool::mouseMove(QPointF pos) {
     IAppContext *ctx = getContext();
     QPointF snappedPos = pos;
     SnapType snapType = SnapType::None;
+    if (m_awaitAngle) {
+        // 기준점에서 커서 방향으로 회전한 모양을 미리 보여 준다 (F8 직교 적용).
+        if (ctx && ctx->snapManager()) {
+            const SnapManager::SnapResult res = ctx->snapManager()->snapPoint(pos, m_scene, m_baseOrigin);
+            snappedPos = res.snappedPos;
+            snapType = res.type;
+        }
+        m_scene->setSnapMarker(snappedPos, snapType);
+        updateGhostPreview(buildPath(m_params, m_baseOrigin, angleFromPoint(snappedPos)),
+                           currentLayerName());
+        return;
+    }
     if (ctx && ctx->snapManager()) {
         const SnapManager::SnapResult res = ctx->snapManager()->snapPoint(pos, m_scene, QPointF());
         snappedPos = res.snappedPos;
@@ -405,6 +539,20 @@ void DeepGrooveBearingTool::mouseMove(QPointF pos) {
 }
 
 void DeepGrooveBearingTool::keyPress(QKeyEvent *event) {
+    if (m_cancelled) return;
+    if (m_awaitAngle) {
+        if (event->key() == Qt::Key_Escape) {
+            cancelAngleStep();
+            return;
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter ||
+            event->key() == Qt::Key_Space) {
+            finishAngleStep(0.0);
+            return;
+        }
+        AbstractTool::keyPress(event);   // F8 등
+        return;
+    }
     if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Return ||
         event->key() == Qt::Key_Enter || event->key() == Qt::Key_Space) {
         finishTool();

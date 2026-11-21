@@ -22,6 +22,10 @@ signals:
     void toggleBlockPaletteDock(bool visible);
     void togglePropertyDock(bool visible);
     void themeSelected(int themeType);
+    void layer3DRequested(); // 메뉴 "3D Layer" > 레이어 높이 설정
+    void model3DCheckRequested(); // 메뉴 "3D Layer" > 3D 모델 검사
+    void model3DViewRequested();  // 메뉴 "3D 건축용" > 3D 보기
+    void mechModel3DViewRequested(); // 메뉴 "3D 기계용" > 부품 3D 보기
 
     void newFileRequested();
     void openFileRequested();

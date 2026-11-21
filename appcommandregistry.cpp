@@ -89,6 +89,7 @@
 #include "hhbolttool.h"
 #include "hbbolttool.h"
 #include "boltpickerdialog.h"
+#include "bearingpickerdialog.h"
 #include "polygontool.h"
 #include "stairplantool.h"
 #include "rubbletool.h"
@@ -100,11 +101,49 @@
 #include "insulationtool.h"
 #include "ellipsetool.h"
 #include "detailviewtool.h"
+#include "revolvebodytool.h"
+#include "projectionviewtool.h"
+#include "extrudetool.h"
+#include "depthmovetool.h"
 #include "shafttool.h"
 #include "deepgroovebearingtool.h"
+#include "taperedrollerbearingtool.h"
+#include "thrustbearingtool.h"
 
 static CommandBase *createDeepGrooveBearingCommand(IAppContext *c) {
   return new ToolCommand<DeepGrooveBearingTool>(c);
+}
+
+static CommandBase *createTaperedRollerBearingCommand(IAppContext *c) {
+  return new ToolCommand<TaperedRollerBearingTool>(c);
+}
+
+static CommandBase *createThrustBearingCommand(IAppContext *c) {
+  return new ToolCommand<ThrustBearingTool>(c);
+}
+
+static CommandBase *createDepthMoveCommand(IAppContext *c) {
+  return new ToolCommand<DepthMoveTool>(c);
+}
+
+static CommandBase *createExtrudeCommand(IAppContext *c) {
+  return new ToolCommand<ExtrudeTool>(c);
+}
+
+static CommandBase *createProjectionViewCommand(IAppContext *c) {
+  return new ToolCommand<ProjectionViewTool>(c);
+}
+
+static CommandBase *createProjectionRegenCommand(IAppContext *c) {
+  return new ToolCommand<ProjectionRegenTool>(c);
+}
+
+static CommandBase *createRevolveBodyCommand(IAppContext *c) {
+  return new ToolCommand<RevolveBodyTool>(c);
+}
+
+static CommandBase *createShaftCommand(IAppContext *c) {
+  return new ToolCommand<ShaftTool>(c);
 }
 
 AppCommandRegistry::AppCommandRegistry(QObject *parent) : QObject(parent) {}
@@ -224,6 +263,15 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   factory.registerCommand("draw.polygon", [](IAppContext *c) {
     return new ToolCommand<PolygonTool>(c);
   });
+  factory.registerCommand("mech3d.revolve", createRevolveBodyCommand);
+  factory.registerCommand("mech3d.projection", createProjectionViewCommand);
+  factory.registerCommand("mech3d.projectionregen", createProjectionRegenCommand);
+  factory.registerCommand("mech3d.extrude", createExtrudeCommand);
+  factory.registerCommand("mech3d.depthmove", createDepthMoveCommand);
+  factory.registerCommand("mechtools.shaft", createShaftCommand);
+  factory.registerCommand("mechtools.deepgroovebearing", createDeepGrooveBearingCommand);
+  factory.registerCommand("mechtools.taperedrollerbearing", createTaperedRollerBearingCommand);
+  factory.registerCommand("mechtools.thrustbearing", createThrustBearingCommand);
   factory.registerCommand("draw.hatch", [](IAppContext *c) {
     return new ToolCommand<HatchTool>(c);
   });
@@ -311,10 +359,6 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   factory.registerCommand("modify.join", [](IAppContext *c) {
     return new ToolCommand<JoinTool>(c);
   });
-  factory.registerCommand("mechtools.shaft", [](IAppContext *c) {
-    return new ToolCommand<ShaftTool>(c);
-  });
-  factory.registerCommand("mechtools.deepgroovebearing", createDeepGrooveBearingCommand);
   factory.registerCommand("modify.detailview", [](IAppContext *c) {
     return new ToolCommand<DetailViewTool>(c);
   });
@@ -396,7 +440,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
     return new NotImplementedCommand(c, tr("핀"));
   });
   factory.registerCommand("mech.bearing", [](IAppContext *c) {
-    return new NotImplementedCommand(c, tr("베어링"));
+    return new BearingPickerCommand(c);
   });
   factory.registerCommand("mech.spring", [](IAppContext *c) {
     return new NotImplementedCommand(c, tr("스프링"));
@@ -571,6 +615,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
     CommandBase *cmd = factory.createCommand("file.dwgimport", ctx);
     mgr->registerCommand(cmd, info, "dwgimport");
   }
+
 
   {
     CommandInfo info(QStringLiteral("menu.file.dwgexport"), tr("파일"), tr("DWG로 저장..."),
@@ -1717,7 +1762,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   // 서브메뉴 뼈대만 먼저 등록. 아이콘/실제 그리기 기능은 항목별로 순차 추가 예정
   // (볼트 → 너트 → 와셔 → ... 순서, [[project_mechparts_plan]] 참고)
   {
-    CommandInfo info(QStringLiteral("tab.mech.bolt"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.bolt"), tr("기계 Tools"),
                      tr("  볼트  "), QString(":/icons/bolt.png"), QString());
     mgr->registerCommand(factory.createCommand("mech.bolt", ctx), info,
                          QString());
@@ -1730,7 +1775,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
     // 않는다 — CommandInfo id에서 "tab." 접두어만 뺐다(mgr->registerCommand가
     // "tab."/"menu."로 시작하는 id일 때만 탭 버튼을 만듦, commandmanager.cpp 참고).
     // 타이핑 명령어("mech.wrenchbolt")와 별칭("wbolt")은 그대로 살아있다.
-    CommandInfo info(QStringLiteral("mech.wrenchbolt"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("mech.wrenchbolt"), tr("기계 Tools"),
                      tr("렌치볼트"), QString(), QStringLiteral("wbolt"));
     mgr->registerCommand(factory.createCommand("mech.wrenchbolt", ctx), info,
                          QStringLiteral("wbolt"));
@@ -1739,7 +1784,7 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   {
     // 접시머리렌치볼트(육각구멍붙이 접시머리볼트) — Lisp\hhbolt.lsp 이식. 위와 동일하게
     // 탭 버튼 없이 타이핑 명령어("mech.hhbolt"/"hhbolt")만 남겨둠.
-    CommandInfo info(QStringLiteral("mech.hhbolt"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("mech.hhbolt"), tr("기계 Tools"),
                      tr("접시머리렌치볼트"), QString(), QStringLiteral("hhbolt"));
     mgr->registerCommand(factory.createCommand("mech.hhbolt", ctx), info,
                          QStringLiteral("hhbolt"));
@@ -1747,59 +1792,99 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
 
   {
     // 둥근머리렌치볼트(육각구멍붙이 둥근머리볼트) — Lisp\hb.lsp 이식. 위와 동일.
-    CommandInfo info(QStringLiteral("mech.hbbolt"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("mech.hbbolt"), tr("기계 Tools"),
                      tr("둥근머리렌치볼트"), QString(), QStringLiteral("hbbolt"));
     mgr->registerCommand(factory.createCommand("mech.hbbolt", ctx), info,
                          QStringLiteral("hbbolt"));
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.nut"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.nut"), tr("기계 Tools"),
                      tr("  너트  "), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.nut", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.washer"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.washer"), tr("기계 Tools"),
                      tr("  와셔  "), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.washer", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.key"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.key"), tr("기계 Tools"),
                      tr("   키   "), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.key", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.pin"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.pin"), tr("기계 Tools"),
                      tr("   핀   "), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.pin", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.bearing"), tr("기계부품"),
-                     tr(" 베어링 "), QString(), QString());
+    CommandInfo info(QStringLiteral("tab.mech.bearing"), tr("기계 Tools"),
+                     tr(" 베어링 "), QString(":/icons/deepgroovebearing.png"), QString());
     mgr->registerCommand(factory.createCommand("mech.bearing", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.spring"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.spring"), tr("기계 Tools"),
                      tr(" 스프링 "), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.spring", ctx), info,
                          QString());
   }
 
   {
-    CommandInfo info(QStringLiteral("tab.mech.retainingring"), tr("기계부품"),
+    CommandInfo info(QStringLiteral("tab.mech.retainingring"), tr("기계 Tools"),
                      tr("리테이닝링"), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech.retainingring", ctx), info,
                          QString());
+  }
+
+  {
+    CommandInfo info(QStringLiteral("tab.mech.structuralsteel"), tr("기계 Tools"),
+                     tr("구조형강"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech.structuralsteel", ctx), info,
+                         QString());
+  }
+
+  // 메뉴 3D 기계용 — 해칭 단면 + 중심선 → 회전체 3D (하우징·커버 등)
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.revolve"), tr("3D 기계용"),
+                     tr("단면 회전체 만들기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.revolve", ctx), info,
+                         QStringLiteral("rev3d"));
+  }
+  // 메뉴 3D 기계용 — 3D 데이터(회전 단면)로 좌·우측면도·평면도 생성 / 다시 그리기
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.projection"), tr("3D 기계용"),
+                     tr("투상도 만들기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.projection", ctx), info,
+                         QStringLiteral("proj3d"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.projectionregen"), tr("3D 기계용"),
+                     tr("투상도 다시 그리기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.projectionregen", ctx), info,
+                         QStringLiteral("proj3dupd"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.extrude"), tr("3D 기계용"),
+                     tr("돌출"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.extrude", ctx), info,
+                         QStringLiteral("ext3d"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.depthmove"), tr("3D 기계용"),
+                     tr("깊이(이동)"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.depthmove", ctx), info,
+                         QStringLiteral("depth3d"));
   }
 
   // 탭바 기계 Tools — 축(Shaft): 구간 표 입력 → 외형·중심선·치수 자동 생성
@@ -1812,19 +1897,31 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
 
   // 탭바 기계 Tools — 깊은 홈 볼베어링: 호칭번호(693~6940) 선택 → 단면도·치수 자동 생성
   {
-    CommandInfo info(QStringLiteral("tab.mechtools.deepgroovebearing"), tr("기계 Tools"),
-                     tr("깊은홈볼베어링"), QString(":/icons/deepgroovebearing.png"),
+    CommandInfo info(QStringLiteral("mechtools.deepgroovebearing"), tr("기계 Tools"),
+                     tr("깊은홈볼베어링"), QString(),
                      QStringLiteral("dgbearing"));
     mgr->registerCommand(factory.createCommand("mechtools.deepgroovebearing", ctx), info,
                          QStringLiteral("dgbearing"));
   }
 
+  // 탭바 기계 Tools — 테이퍼롤러베어링: 계열·호칭번호(BEARING1.DAT) 선택 → 컵·콘·롤러 단면도·치수 자동 생성
   {
-    CommandInfo info(QStringLiteral("tab.mech.structuralsteel"), tr("기계부품"),
-                     tr("구조형강"), QString(), QString());
-    mgr->registerCommand(factory.createCommand("mech.structuralsteel", ctx), info,
-                         QString());
+    CommandInfo info(QStringLiteral("mechtools.taperedrollerbearing"), tr("기계 Tools"),
+                     tr("테이퍼롤러베어링"), QString(),
+                     QStringLiteral("trbearing"));
+    mgr->registerCommand(factory.createCommand("mechtools.taperedrollerbearing", ctx), info,
+                         QStringLiteral("trbearing"));
   }
+
+  // 탭바 기계 Tools — 스러스트베어링: 평면자리/조심자리/조심자리와셔형, 계열·호칭번호(BEARING2.DAT) 선택 → 단면도·치수 자동 생성
+  {
+    CommandInfo info(QStringLiteral("mechtools.thrustbearing"), tr("기계 Tools"),
+                     tr("스러스트베어링"), QString(),
+                     QStringLiteral("thbearing"));
+    mgr->registerCommand(factory.createCommand("mechtools.thrustbearing", ctx), info,
+                         QStringLiteral("thbearing"));
+  }
+
 
 //   {
 //     CommandInfo info(QStringLiteral("view.limits"), tr("View"),

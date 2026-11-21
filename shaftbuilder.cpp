@@ -53,8 +53,8 @@ MyDimension makeHorizontalDim(const QPointF &a, const QPointF &b, double lineY) 
 
 // 지름 치수 문구: 나사부 끝 구간은 "M호칭경", 그 외는 "Ø" + 끼워맞춤 등급
 void applyDiameterText(MyDimension &d, const ShaftParams &params, int index, const ShaftSegment &s) {
-    const bool threadLeft  = (index == 0) && params.leftEnd.type == ShaftEndType::Thread;
-    const bool threadRight = (index == params.segments.size() - 1) && params.rightEnd.type == ShaftEndType::Thread;
+    const bool threadLeft  = (index == 0) && params.hasThread(0);
+    const bool threadRight = (index == params.segments.size() - 1) && params.hasThread(1);
     if (threadLeft || threadRight) {
         d.prefix = QStringLiteral("M");
         return;
@@ -91,50 +91,123 @@ QStringList ShaftBuilder::validate(const ShaftParams &params) {
     }
     if (!problems.isEmpty()) return problems;
 
-    // 끝단 형상 검사: (끝 구간, 끝단 설정, 이름)
-    for (int side = 0; side < 2; ++side) {
-        const ShaftEnd &e = (side == 0) ? params.leftEnd : params.rightEnd;
-        const ShaftSegment &s = (side == 0) ? params.segments.first() : params.segments.last();
-        const QString name = (side == 0) ? QObject::tr("왼쪽 끝") : QObject::tr("오른쪽 끝");
-        const double r = s.diameter * 0.5;
+    // 키홈 검사 (구간마다)
+    const int n = params.segments.size();
+    const ShaftParams eff = withThreadChamfers(params);     // 나사 끝 자동 모따기까지 포함한 모따기
+    for (int i = 0; i < n; ++i) {
+        const ShaftKeyway &k = params.segments.at(i).keyway;
+        if (!k.enabled) continue;
+        const ShaftSegment &es = eff.segments.at(i);
+        const QStringList kp = validateKeyway(k, i, n, es.diameter, es.length, es.chamferLeft, es.chamferRight);
+        for (int j = 0; j < kp.size(); ++j)
+            problems << QObject::tr("구간 %1 키홈: %2").arg(i + 1).arg(kp.at(j));
+    }
 
-        if (e.type == ShaftEndType::Keyway) {
-            const ShaftKeyway &k = e.keyway;
-            if (k.upper <= 0.0 || k.lower <= 0.0 || k.length <= 0.0) {
-                problems << QObject::tr("%1 키홈: 길이·상단·하단은 0보다 커야 합니다.").arg(name);
-            } else {
-                if (k.length > s.length + kEps)
-                    problems << QObject::tr("%1 키홈: 길이가 끝 구간 길이(%2)보다 큽니다.").arg(name).arg(s.length);
-                if (k.length < (k.upper + k.lower) * 0.5 - kEps)
-                    problems << QObject::tr("%1 키홈: 길이가 홈 폭의 절반(반원 끝)보다 작습니다.").arg(name);
-                if (k.center + k.upper >= r || k.center - k.lower <= -r)
-                    problems << QObject::tr("%1 키홈: 홈이 축 지름 밖으로 나갑니다.").arg(name);
-                if (k.showSection && (k.sectionDepth <= kEps || k.sectionDepth >= r * 0.8))
-                    problems << QObject::tr("%1 키홈 단면: 홈 깊이는 0보다 크고 반지름의 80%%(%2) 미만이어야 합니다.")
-                                    .arg(name).arg(r * 0.8);
-            }
-        } else if (e.type == ShaftEndType::Thread) {
-            const double dp = 0.541266 * ShaftParams::effectivePitch(e.thread, s.diameter);
-            if (e.thread.length > s.length + kEps)
-                problems << QObject::tr("%1 나사부: 길이가 끝 구간 길이(%2)보다 큽니다.").arg(name).arg(s.length);
-            if (e.thread.length < dp - kEps || dp >= r)
-                problems << QObject::tr("%1 나사부: 길이가 너무 짧거나 피치가 지름에 비해 너무 큽니다.").arg(name);
-        }
+    // 나사부 검사 (양 끝)
+    for (int side = 0; side < 2; ++side) {
+        if (!params.hasThread(side)) continue;
+        const ShaftThread &th = params.thread(side);
+        const ShaftSegment &s = (side == 0) ? params.segments.first() : params.segments.last();
+        const QString name = (side == 0) ? QObject::tr("왼쪽") : QObject::tr("오른쪽");
+        const double r = s.diameter * 0.5;
+        const double dp = 0.541266 * ShaftParams::effectivePitch(th, s.diameter);
+        if (th.length > s.length + kEps)
+            problems << QObject::tr("%1 나사부: 길이가 끝 구간 길이(%2)보다 큽니다.").arg(name).arg(s.length);
+        if (th.length < dp - kEps || dp >= r)
+            problems << QObject::tr("%1 나사부: 길이가 너무 짧거나 피치가 지름에 비해 너무 큽니다.").arg(name);
+        // 같은 끝의 끝 열림 키홈과 겹침
+        const ShaftKeyway &k = s.keyway;
+        const ShaftKeywayRef endRef = (side == 0) ? ShaftKeywayRef::Left : ShaftKeywayRef::Right;
+        if (k.enabled && k.type == ShaftKeywayType::Open && k.ref == endRef)
+            problems << QObject::tr("%1 끝은 나사부와 끝 열림 키홈이 겹칩니다.").arg(name);
     }
     return problems;
+}
+
+double ShaftBuilder::keywayChamferShift(const ShaftKeyway &k, double chamferLeft, double chamferRight) {
+    if (k.type != ShaftKeywayType::Closed) return 0.0;
+    if (k.ref == ShaftKeywayRef::Left)  return qMax(0.0, chamferLeft);
+    if (k.ref == ShaftKeywayRef::Right) return qMax(0.0, chamferRight);
+    return 0.0;
+}
+
+QStringList ShaftBuilder::validateKeyway(const ShaftKeyway &k, int index, int segCount,
+                                         double diameter, double segLength,
+                                         double chamferLeft, double chamferRight) {
+    QStringList problems;
+    const double r = diameter * 0.5;
+    const double w = k.width();
+    if (k.upper <= 0.0 || k.lower <= 0.0 || k.length <= 0.0) {
+        problems << QObject::tr("길이·상단·하단은 0보다 커야 합니다.");
+        return problems;
+    }
+    if (k.type == ShaftKeywayType::Open) {
+        if (k.ref == ShaftKeywayRef::Center)
+            problems << QObject::tr("끝 열림은 열린 쪽(왼쪽 면/오른쪽 면)을 기준으로 골라야 합니다.");
+        else if (k.ref == ShaftKeywayRef::Left && index != 0)
+            problems << QObject::tr("왼쪽으로 열린 키홈은 첫 구간에만 낼 수 있습니다.");
+        else if (k.ref == ShaftKeywayRef::Right && index != segCount - 1)
+            problems << QObject::tr("오른쪽으로 열린 키홈은 마지막 구간에만 낼 수 있습니다.");
+        if (k.length < w * 0.5 - kEps)
+            problems << QObject::tr("길이가 홈 폭의 절반(반원 끝)보다 작습니다.");
+        if (k.length > segLength + kEps)
+            problems << QObject::tr("길이(%1)가 구간 길이(%2)보다 큽니다.").arg(k.length).arg(segLength);
+    } else {
+        if (k.length < w - kEps)
+            problems << QObject::tr("막힌 키홈 길이는 홈 폭(%1) 이상이어야 합니다.").arg(w);
+        // 왼쪽/오른쪽 면 기준이면 그 면의 모따기만큼 안쪽에서부터 잰다
+        const double shift = keywayChamferShift(k, chamferLeft, chamferRight);
+        const double used = k.length + (k.ref == ShaftKeywayRef::Center ? 0.0 : k.offset + shift);
+        if (k.offset < -kEps)
+            problems << QObject::tr("기준면에서의 거리는 0 이상이어야 합니다.");
+        else if (used > segLength + kEps)
+            problems << (shift > kEps
+                             ? QObject::tr("홈이 구간(길이 %1, 모따기 %2 제외) 밖으로 나갑니다.").arg(segLength).arg(shift)
+                             : QObject::tr("홈이 구간(길이 %1) 밖으로 나갑니다.").arg(segLength));
+    }
+    if (k.center + k.upper >= r || k.center - k.lower <= -r)
+        problems << QObject::tr("홈이 축 지름 밖으로 나갑니다.");
+    if (k.showSection && (k.sectionDepth <= kEps || k.sectionDepth >= r * 0.8))
+        problems << QObject::tr("홈 깊이는 0보다 크고 반지름의 80%%(%1) 미만이어야 합니다.").arg(r * 0.8);
+    return problems;
+}
+
+bool ShaftBuilder::keywaySpan(const ShaftParams &params, int index, double &sa, double &sb,
+                              bool &openL, bool &openR) {
+    if (index < 0 || index >= params.segments.size()) return false;
+    const ShaftKeyway &k = params.segments.at(index).keyway;
+    if (!k.enabled) return false;
+    double x0 = 0.0;
+    for (int i = 0; i < index; ++i) x0 += params.segments.at(i).length;
+    const double x1 = x0 + params.segments.at(index).length;
+    // 기준면이 모따기되어 있으면 모따기 끝(원통이 시작되는 곳)부터 잰다 (나사 끝 자동 모따기 포함)
+    const ShaftSegment es = withThreadChamfers(params).segments.at(index);
+    const double shift = keywayChamferShift(k, es.chamferLeft, es.chamferRight);
+    openL = openR = false;
+    if (k.type == ShaftKeywayType::Open) {
+        if (k.ref == ShaftKeywayRef::Right) { sb = x1; sa = x1 - k.length; openR = true; }
+        else                                { sa = x0; sb = x0 + k.length; openL = true; }
+    } else if (k.ref == ShaftKeywayRef::Left) {
+        sa = x0 + shift + k.offset; sb = sa + k.length;
+    } else if (k.ref == ShaftKeywayRef::Right) {
+        sb = x1 - shift - k.offset; sa = sb - k.length;
+    } else {
+        sa = (x0 + x1 - k.length) * 0.5; sb = sa + k.length;
+    }
+    return true;
 }
 
 // 나사부 끝에는 골 깊이(dp)만큼의 모따기가 자동으로 들어간다 (육각볼트 끝단과 같음).
 ShaftParams ShaftBuilder::withThreadChamfers(const ShaftParams &params) {
     ShaftParams eff = params;
     if (eff.segments.isEmpty()) return eff;
-    if (eff.leftEnd.type == ShaftEndType::Thread) {
+    if (eff.hasThread(0)) {
         ShaftSegment &s = eff.segments.first();
-        s.chamferLeft = 0.541266 * ShaftParams::effectivePitch(eff.leftEnd.thread, s.diameter);
+        s.chamferLeft = 0.541266 * ShaftParams::effectivePitch(eff.leftThread, s.diameter);
     }
-    if (eff.rightEnd.type == ShaftEndType::Thread) {
+    if (eff.hasThread(1)) {
         ShaftSegment &s = eff.segments.last();
-        s.chamferRight = 0.541266 * ShaftParams::effectivePitch(eff.rightEnd.thread, s.diameter);
+        s.chamferRight = 0.541266 * ShaftParams::effectivePitch(eff.rightThread, s.diameter);
     }
     return eff;
 }
@@ -144,52 +217,66 @@ void ShaftBuilder::buildEnds(const ShaftParams &params, const QPointF &origin, S
     const double xTotal = origin.x() + params.totalLength();
     const double rmax = params.maxDiameter() * 0.5;
 
+    // 나사부 (양 끝)
     for (int side = 0; side < 2; ++side) {
-        const ShaftEnd &e = (side == 0) ? params.leftEnd : params.rightEnd;
-        if (e.type == ShaftEndType::None) continue;
+        if (!params.hasThread(side)) continue;
+        const ShaftThread &th = params.thread(side);
         const ShaftSegment &s = (side == 0) ? params.segments.first() : params.segments.last();
         const double r  = s.diameter * 0.5;
         const double xe = (side == 0) ? origin.x() : xTotal;   // 끝면 x
         const double dir = (side == 0) ? 1.0 : -1.0;           // 끝면에서 안쪽으로 가는 방향
+        const double dp = 0.541266 * ShaftParams::effectivePitch(th, s.diameter);
+        const double rm = r - dp;                               // 골지름 반지름
+        const double xs = xe + dir * th.length;                 // 나사 시작선
+        g.threadLines.append(QLineF(xe, y0 + rm, xs, y0 + rm));
+        g.threadLines.append(QLineF(xe, y0 - rm, xs, y0 - rm));
+        // 나사가 구간 일부만 차지하면 시작선(외형선)을 전체 폭으로 그린다 (부분나사 표현)
+        if (th.length < s.length - kEps)
+            g.edgeLines.append(QLineF(xs, y0 - r, xs, y0 + r));
+    }
 
-        if (e.type == ShaftEndType::Thread) {
-            const double dp = 0.541266 * ShaftParams::effectivePitch(e.thread, s.diameter);
-            const double rm = r - dp;                           // 골지름 반지름
-            const double xs = xe + dir * e.thread.length;       // 나사 시작선
-            g.threadLines.append(QLineF(xe, y0 + rm, xs, y0 + rm));
-            g.threadLines.append(QLineF(xe, y0 - rm, xs, y0 - rm));
-            // 나사가 구간 일부만 차지하면 시작선(외형선)을 전체 폭으로 그린다 (부분나사 표현)
-            if (e.thread.length < s.length - kEps)
-                g.edgeLines.append(QLineF(xs, y0 - r, xs, y0 + r));
-        } else if (e.type == ShaftEndType::Keyway) {
-            const ShaftKeyway &k = e.keyway;
+    // 키홈 (구간마다)
+    double segX = origin.x();
+    for (int idx = 0; idx < params.segments.size(); ++idx) {
+        const ShaftSegment &s = params.segments.at(idx);
+        const double xl = segX;                                 // 구간 왼쪽 x
+        const double xr = segX + s.length;                      // 구간 오른쪽 x
+        segX = xr;
+        double a0 = 0.0, b0 = 0.0;
+        bool openL = false, openR = false;
+        if (!keywaySpan(params, idx, a0, b0, openL, openR)) continue;
+        const ShaftKeyway &k = s.keyway;
+        const double r  = s.diameter * 0.5;
+        const double sa = origin.x() + a0;                      // 홈 범위 [sa, sb]
+        const double sb = origin.x() + b0;
+        {
             const double yTop = y0 + k.center + k.upper;
             const double yBot = y0 + k.center - k.lower;
             const double rad  = (k.upper + k.lower) * 0.5;
-            const double xin  = xe + dir * k.length;            // 홈 안쪽 끝(반원 정점)
-            const double xa   = xin - dir * rad;                // 직선부가 끝나고 반원이 시작하는 x
 
             ShaftKeywayShape shape;
-            shape.pts.push_back(MyVector(xe, yTop));
-            shape.pts.push_back(MyVector(xa, yTop));
-            shape.pts.push_back(MyVector(xa, yBot));
-            shape.pts.push_back(MyVector(xe, yBot));
-            // 위→아래로 진행할 때 안쪽(dir 방향)으로 볼록한 반원: 왼쪽 끝은 -1, 오른쪽 끝은 +1
-            shape.bulges = {0.0, -dir, 0.0, 0.0};
-            if (!k.showSection) g.keyways.append(shape);
-
-            // 단면 표시일 때 홈의 x 범위는 위치(앞/중앙/뒤)에 따라 구간 안에서 정해진다.
-            const double xi  = xe + dir * s.length;             // 끝 구간 안쪽 경계
-            const double xl  = qMin(xe, xi);                    // 구간 왼쪽 x
-            const double xr  = qMax(xe, xi);                    // 구간 오른쪽 x
-            double sa = qMin(xe, xin);                          // 홈 범위 [sa, sb]
-            if (k.showSection) {
-                const int pos = (k.sectionPos < 0) ? (side == 0 ? 0 : 2) : k.sectionPos;
-                if (pos == 0)      sa = xl;
-                else if (pos == 1) sa = (xl + xr - k.length) * 0.5;
-                else               sa = xr - k.length;
+            if (openL || openR) {
+                const double dir = openL ? 1.0 : -1.0;          // 끝면에서 안쪽 방향
+                const double xe  = openL ? sa : sb;             // 끝면 x
+                const double xa  = (openL ? sb : sa) - dir * rad; // 직선부가 끝나고 반원이 시작하는 x
+                shape.pts.push_back(MyVector(xe, yTop));
+                shape.pts.push_back(MyVector(xa, yTop));
+                shape.pts.push_back(MyVector(xa, yBot));
+                shape.pts.push_back(MyVector(xe, yBot));
+                // 위→아래로 진행할 때 안쪽(dir 방향)으로 볼록한 반원: 왼쪽 끝은 -1, 오른쪽 끝은 +1
+                shape.bulges = {0.0, -dir, 0.0, 0.0};
+            } else {
+                // 막힌 홈: 위 직선(왼→오) → 오른쪽 반원 → 아래 직선(오→왼) → 왼쪽 반원 (닫힘)
+                const double xa = sa + rad;
+                const double xb = sb - rad;
+                shape.pts.push_back(MyVector(xa, yTop));
+                shape.pts.push_back(MyVector(xb, yTop));
+                shape.pts.push_back(MyVector(xb, yBot));
+                shape.pts.push_back(MyVector(xa, yBot));
+                shape.bulges = {0.0, -1.0, 0.0, -1.0};
+                shape.closed = true;
             }
-            const double sb = sa + k.length;
+            if (!k.showSection) g.keyways.append(shape);
 
             // 키홈 길이 치수 (도형 위쪽)
             if (params.lengthDims) {
@@ -201,8 +288,8 @@ void ShaftBuilder::buildEnds(const ShaftParams &params, const QPointF &origin, S
             if (k.showSection) {
                 const double yt  = y0 + r;                          // 축 윗면
                 const double yf  = yt - k.sectionDepth;             // 홈 바닥
-                const bool wallL = sa > xl + kEps;                  // 끝면에 닿지 않는 쪽만 벽을 그린다
-                const bool wallR = sb < xr - kEps;
+                const bool wallL = !openL;                          // 축 끝면으로 열린 쪽은 벽이 없다
+                const bool wallR = !openR;
                 g.edgeLines.append(QLineF(sa, yf, sb, yf));
                 if (wallL) g.edgeLines.append(QLineF(sa, yf, sa, yt));
                 if (wallR) g.edgeLines.append(QLineF(sb, yf, sb, yt));
@@ -408,6 +495,23 @@ QPainterPath ShaftBuilder::buildPath(const ShaftParams &params, const QPointF &o
     for (int i = 0; i < g.keyways.size(); ++i) {
         const ShaftKeywayShape &k = g.keyways.at(i);
         if (k.pts.size() < 4) continue;
+        if (k.closed) {
+            // 막힌 홈: 위 직선 + 오른쪽 반원 + 아래 직선 + 왼쪽 반원
+            const double rad = qAbs(k.pts[1].y - k.pts[2].y) * 0.5;
+            const double cy = (k.pts[1].y + k.pts[2].y) * 0.5;
+            path.moveTo(k.pts[0].x, k.pts[0].y);
+            path.lineTo(k.pts[1].x, k.pts[1].y);
+            for (int s = 1; s <= 12; ++s) {
+                const double t = M_PI * 0.5 - M_PI * s / 12.0;
+                path.lineTo(k.pts[1].x + rad * qCos(t), cy + rad * qSin(t));
+            }
+            path.lineTo(k.pts[3].x, k.pts[3].y);
+            for (int s = 1; s <= 12; ++s) {
+                const double t = -M_PI * 0.5 - M_PI * s / 12.0;  // 아래 → 왼쪽 → 위
+                path.lineTo(k.pts[0].x + rad * qCos(t), cy + rad * qSin(t));
+            }
+            continue;
+        }
         // 미리보기: 직선부 + 안쪽 반원을 선분으로 근사
         const MyVector &a = k.pts[1];
         const MyVector &b = k.pts[2];

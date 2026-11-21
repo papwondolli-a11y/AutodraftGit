@@ -33,6 +33,13 @@ public:
 
     void activate(MyGraphicsScene *scene) override;
 
+    // MCP(AI 브리지) 등 외부 호출용 — 설정창 없이 주어진 값으로 바로 배치 가능한 상태로 만든다.
+    // activate() 전에 호출해야 하며, 이후 activate()는 설정창을 띄우지 않고 기준점 입력 대기로 들어간다.
+    // outlineLayer/threadLayer 가 빈 문자열이면 현재 레이어를 쓴다.
+    void setHeadlessParams(const HexBoltSize &size, double length, bool fullThread,
+                           bool centerline, bool sideView,
+                           const QString &outlineLayer, const QString &threadLayer);
+
     // 로컬 좌표계(원점=입면도 머리/몸통 경계 중심, +v=볼트가 뻗어나가는 방향) 기준
     // 형상 목록 생성 — 입면도(머리+몸통, 필렛/모따기, 나사 골지름 표시선, 중심선)와
     // 원형 러벤도(육각형, 대변원, 중심선 십자)를 모두 포함한다.
@@ -67,10 +74,13 @@ protected:
                                            double angleDeg) const override;
     QString positionPromptText() const override;
     QString toolMacroLabel() const override;
+    bool mechPartInfo(double length, QString &type, QString &namePrefix,
+                      QMap<QString, QVariant> &props) const override; // [3D 기계용] 육각볼트
 
 private:
     HexBoltSize m_size;             // 선택된 호칭경 규격
     bool        m_fullThread;       // true면 전나사(어깨까지 골지름선), false면 부분나사(끝단에서 b만큼만)
+    bool        m_headless = false; // true면 activate()에서 설정창을 건너뛴다(setHeadlessParams)
 };
 
 #endif // BOLTTOOL_H

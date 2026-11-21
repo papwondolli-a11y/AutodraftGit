@@ -27,6 +27,9 @@
 #include "plandoordoublebiswingtool.h"
 #include "planrevolvingdoortool.h"
 #include "planwindowtool.h"
+#include "openingheights.h"
+#include "scenesymbolregistry.h"
+#include <QUndoStack>
 #include "wallpositiondialog.h"
 #include "plandoorsetupdialog.h"
 #include "selectionmanager.h"
@@ -1230,6 +1233,15 @@ void PropertyDock::showSymbolProperties(const SymbolInfo &info)
         rows << RowDef{"WinShape",    "",              "", false};
     }
 
+    // [3D] 개구부 하단높이·높이 — 평면 형상과 무관하므로 편집해도 재생성하지 않는다
+    if (OpeningHeights::isOpeningType(info.type)) {
+        LayerManager *lm = m_appContext ? m_appContext->layerManager() : nullptr;
+        rows << RowDef{QString::fromLatin1(OpeningHeights::kSillKey), tr("하단높이 (3D)"),
+                       QString::number(OpeningHeights::sillOf(info, lm), 'f', 0), true};
+        rows << RowDef{QString::fromLatin1(OpeningHeights::kHeightKey), tr("개구부 높이 (3D)"),
+                       QString::number(OpeningHeights::heightOf(info, lm), 'f', 0), true};
+    }
+
     // 문틀 형태 아래에 문 형태 (제목 행 + 아이콘 행)
     if (isAnyDoorType || PlanDoorSimpleTool::isSimpleSymbolType(info.type)) {
         rows << RowDef{"DoorShapeHdr", tr("문 형태"), "", false};
@@ -1375,7 +1387,8 @@ void PropertyDock::showSymbolProperties(const SymbolInfo &info)
         } else if (r.editable) {
             // QDoubleSpinBox: 수치 편집
             QDoubleSpinBox *sb = new QDoubleSpinBox(m_topTable);
-            sb->setRange(r.key == "SashW" ? 0.0 : 1.0, 99999.0);
+            sb->setRange((r.key == "SashW" || r.key == QLatin1String(OpeningHeights::kSillKey)) ? 0.0 : 1.0,
+                         99999.0);
             sb->setDecimals(0);
             sb->setSuffix(" mm");
             sb->setValue(r.value.toDouble());
@@ -1416,6 +1429,18 @@ void PropertyDock::onSymbolSpinboxFinished()
     SymbolInfo oldInfo = reg->symbolInfo(m_currentGroupId);
     SymbolInfo newInfo = oldInfo;
     newInfo.props[key] = newVal;
+
+    // [3D] 개구부 높이: 레지스트리만 갱신 (형상 재생성 불필요), Undo 지원
+    if (key == QLatin1String(OpeningHeights::kSillKey) ||
+        key == QLatin1String(OpeningHeights::kHeightKey)) {
+        if (oldInfo.props.value(key) == newInfo.props.value(key))
+            return;
+        if (QUndoStack *stack = m_appContext->undoStack())
+            stack->push(new UpdateRegistryCommand(reg, m_currentGroupId, oldInfo, newInfo));
+        else
+            reg->registerSymbol(m_currentGroupId, newInfo);
+        return;
+    }
 
     // 쌍여닫이: 문1/문2 너비 편집 시 전체 폭(H = H1+H2)을 함께 갱신
     // (H 는 벽 트림/래치 끝점 조정 로직에서 공통으로 사용됨)

@@ -24,6 +24,12 @@ public:
     void mouseMove(QPointF pos) override;
     void keyPress(QKeyEvent *event) override;
 
+    // 헤드리스(MCP): 구멍 정보 다이얼로그 없이 구멍을 직접 지정한다.
+    // value = 관통이면 재료 두께, 막힌 구멍이면 탭 깊이(0 이하면 다이얼로그 기본값과 동일:
+    // 관통=구멍 지름, 막힘=구멍의 기존 탭 깊이). hiddenLayer 가 비어있지 않으면 숨은선 모드.
+    // 성공하면 WaitPlacePoint 상태가 되어 이어서 기준점/방향점을 mousePress 로 받는다.
+    bool selectHoleHeadless(HoleItem *hole, double value, const QString &hiddenLayer);
+
 private:
     void cancelTool();
     void showSelectPrompt();

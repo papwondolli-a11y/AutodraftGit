@@ -1,6 +1,7 @@
 #include "shaftdialog.h"
 #include "shaftbuilder.h"
 #include "shaftenddialog.h"
+#include "shaftpresetdialog.h"
 #include "iappcontext.h"
 #include "layer.h"
 #include "layermanager.h"
@@ -13,6 +14,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPixmap>
 #include <QLabel>
 #include <QMessageBox>
@@ -31,6 +34,7 @@ enum Column {
     ColDimDia,
     ColShowFit,
     ColDimLen,
+    ColKeyway,
     ColCount
 };
 
@@ -50,7 +54,7 @@ ShaftDialog::ShaftDialog(IAppContext *ctx, QWidget *parent)
     : QDialog(parent), m_ctx(ctx)
 {
     setWindowTitle(tr("축 (Shaft)"));
-    resize(640, 460);
+    resize(780, 500);
     setupUI();
 }
 
@@ -60,13 +64,13 @@ void ShaftDialog::setupUI() {
     m_table = new QTableWidget(0, ColCount, this);
     QStringList headers;
     headers << tr("지름") << tr("길이") << tr("끼워맞춤") << tr("좌 모따기") << tr("우 모따기")
-            << tr("지름 치수") << tr("끼워맞춤\n공차 표시") << tr("길이 치수");
+            << tr("지름 치수") << tr("끼워맞춤\n공차 표시") << tr("길이 치수") << tr("키홈");
     m_table->setHorizontalHeaderLabels(headers);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     mainLayout->addWidget(m_table);
-    connect(m_table, &QTableWidget::itemChanged, this, &ShaftDialog::updateTotal);
+    connect(m_table, &QTableWidget::itemChanged, this, &ShaftDialog::onItemChanged);
     // 행 번호(세로 헤더) 또는 "길이 치수" 칸을 더블클릭하면 길이 공차 입력창이 뜬다.
     connect(m_table, &QTableWidget::cellDoubleClicked, this, &ShaftDialog::onCellDoubleClicked);
     connect(m_table->verticalHeader(), &QHeaderView::sectionDoubleClicked, this, &ShaftDialog::editLengthTolerance);
@@ -76,6 +80,12 @@ void ShaftDialog::setupUI() {
     QPushButton *delBtn    = new QPushButton(tr("구간 삭제"), this);
     QPushButton *upBtn     = new QPushButton(tr("▲ 위로(왼쪽)"), this);
     QPushButton *downBtn   = new QPushButton(tr("▼ 아래로(오른쪽)"), this);
+    QPushButton *saveBtn   = new QPushButton(tr("데이터 저장"), this);
+    QPushButton *loadBtn   = new QPushButton(tr("데이터 불러오기"), this);
+    saveBtn->setToolTip(tr("지금 입력한 축 데이터를 이름을 붙여 저장합니다 (다른 도면에서도 불러올 수 있음)."));
+    loadBtn->setToolTip(tr("저장한 축 데이터 목록에서 골라 불러옵니다."));
+    connect(saveBtn, &QPushButton::clicked, this, &ShaftDialog::savePresetData);
+    connect(loadBtn, &QPushButton::clicked, this, &ShaftDialog::loadPresetData);
     QPushButton *sampleBtn = new QPushButton(tr("예시 불러오기"), this);
     connect(addBtn,    &QPushButton::clicked, this, &ShaftDialog::addSegment);
     connect(delBtn,    &QPushButton::clicked, this, &ShaftDialog::removeSegment);
@@ -86,6 +96,8 @@ void ShaftDialog::setupUI() {
     btnRow->addWidget(delBtn);
     btnRow->addWidget(upBtn);
     btnRow->addWidget(downBtn);
+    btnRow->addWidget(saveBtn);
+    btnRow->addWidget(loadBtn);
     btnRow->addStretch(1);
     btnRow->addWidget(sampleBtn);
     mainLayout->addLayout(btnRow);
@@ -93,29 +105,18 @@ void ShaftDialog::setupUI() {
     m_totalLabel = new QLabel(this);
     mainLayout->addWidget(m_totalLabel);
 
-    // 양쪽 끝단 형상: 없음 / 키홈 / 나사부 (선택하면 크기 입력창이 뜬다)
+    // 나사부: 축 양 끝에만 (없음 / 왼쪽 / 오른쪽 / 양쪽). 고르면 크기 입력창이 뜬다.
     QFormLayout *endForm = new QFormLayout;
-    m_leftCombo  = new QComboBox(this);
-    m_rightCombo = new QComboBox(this);
-    m_leftEdit   = new QPushButton(tr("크기 설정..."), this);
-    m_rightEdit  = new QPushButton(tr("크기 설정..."), this);
-    const QStringList endNames = QStringList() << tr("없음") << tr("키홈") << tr("나사부");
-    m_leftCombo->addItems(endNames);
-    m_rightCombo->addItems(endNames);
-    m_leftEdit->setEnabled(false);
-    m_rightEdit->setEnabled(false);
-    connect(m_leftCombo,  QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ShaftDialog::onLeftEndChanged);
-    connect(m_rightCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ShaftDialog::onRightEndChanged);
-    connect(m_leftEdit,   &QPushButton::clicked, this, &ShaftDialog::editLeftEnd);
-    connect(m_rightEdit,  &QPushButton::clicked, this, &ShaftDialog::editRightEnd);
-    QHBoxLayout *leftRow = new QHBoxLayout;
-    leftRow->addWidget(m_leftCombo, 1);
-    leftRow->addWidget(m_leftEdit);
-    QHBoxLayout *rightRow = new QHBoxLayout;
-    rightRow->addWidget(m_rightCombo, 1);
-    rightRow->addWidget(m_rightEdit);
-    endForm->addRow(tr("왼쪽 끝단 :"), leftRow);
-    endForm->addRow(tr("오른쪽 끝단 :"), rightRow);
+    m_threadCombo = new QComboBox(this);
+    m_threadEdit  = new QPushButton(tr("크기 설정..."), this);
+    m_threadCombo->addItems(QStringList() << tr("없음") << tr("왼쪽") << tr("오른쪽") << tr("양쪽"));
+    m_threadEdit->setEnabled(false);
+    connect(m_threadCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ShaftDialog::onThreadSideChanged);
+    connect(m_threadEdit,  &QPushButton::clicked, this, &ShaftDialog::editThread);
+    QHBoxLayout *threadRow = new QHBoxLayout;
+    threadRow->addWidget(m_threadCombo, 1);
+    threadRow->addWidget(m_threadEdit);
+    endForm->addRow(tr("나사부 :"), threadRow);
     mainLayout->addLayout(endForm);
 
     m_centerLine   = new QCheckBox(tr("중심선 그리기"), this);
@@ -155,6 +156,7 @@ void ShaftDialog::setupUI() {
 
     QLabel *hint = new QLabel(
         tr("행 하나가 축의 한 구간입니다(왼쪽 끝 → 오른쪽 끝). 칼라·홈은 지름이 다른 짧은 구간으로 입력하세요.\n"
+           "키홈 칸을 체크하면 키홈 설정창이 뜹니다(더블클릭으로 다시 고침). 끝 열림 키홈은 첫/마지막 구간만 가능합니다.\n"
            "기준점은 축 왼쪽 끝면의 중심이며, 끼워맞춤은 g6, k5 처럼 입력합니다(비우면 공차 없음)."),
         this);
     hint->setWordWrap(true);
@@ -184,8 +186,92 @@ void storeLenTol(QTableWidgetItem *it, bool use, double upper, double lower) {
 }
 }
 
+namespace {
+const int kKwRole = Qt::UserRole + 2; // 키홈 칸에 저장하는 키홈 값 (JSON 문자열)
+
+void showKeyway(QTableWidgetItem *it, const ShaftKeyway &k) {
+    if (!it) return;
+    it->setData(kKwRole, QString::fromUtf8(QJsonDocument(k.toJson()).toJson(QJsonDocument::Compact)));
+    it->setCheckState(k.enabled ? Qt::Checked : Qt::Unchecked);
+    if (!k.enabled) {
+        it->setText(QString());
+        it->setToolTip(QObject::tr("체크: 이 구간에 키홈 넣기"));
+        return;
+    }
+    it->setText(k.type == ShaftKeywayType::Open ? QObject::tr("열림") : QObject::tr("막힘"));
+    it->setToolTip(QObject::tr("키홈 폭 %1 × 길이 %2 · 더블클릭: 고치기").arg(k.width()).arg(k.length));
+}
+} // namespace
+
+ShaftKeyway ShaftDialog::rowKeyway(int row) const {
+    const QTableWidgetItem *it = m_table->item(row, ColKeyway);
+    if (!it) return ShaftKeyway();
+    const QJsonDocument doc = QJsonDocument::fromJson(it->data(kKwRole).toString().toUtf8());
+    ShaftKeyway k = ShaftKeyway::fromJson(doc.object(), ShaftKeyway());
+    k.enabled = it->checkState() == Qt::Checked && doc.isObject() && !doc.object().isEmpty();
+    return k;
+}
+
+void ShaftDialog::storeKeyway(int row, const ShaftKeyway &k) {
+    const bool wasBlocked = m_table->blockSignals(true);
+    showKeyway(m_table->item(row, ColKeyway), k);
+    m_table->blockSignals(wasBlocked);
+}
+
+bool ShaftDialog::editKeyway(int row) {
+    QTableWidgetItem *it = m_table->item(row, ColKeyway);
+    if (!it) return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(it->data(kKwRole).toString().toUtf8());
+    const bool hasValue = doc.isObject() && doc.object().value(QStringLiteral("on")).toBool(false);
+    const double d = cellText(row, ColDiameter).toDouble();
+    const double l = cellText(row, ColLength).toDouble();
+
+    double cl = cellText(row, ColChamferL).toDouble();
+    double cr = cellText(row, ColChamferR).toDouble();
+    // 나사 끝은 나사 높이만큼 자동 모따기 (빌더와 같은 값)
+    {
+        const ShaftParams eff = ShaftBuilder::withThreadChamfers(params());
+        if (row >= 0 && row < eff.segments.size()) {
+            cl = eff.segments.at(row).chamferLeft;
+            cr = eff.segments.at(row).chamferRight;
+        }
+    }
+    ShaftKeywayDialog dlg(row, m_table->rowCount(), d, l, cl, cr, this);
+    if (hasValue) {
+        ShaftKeyway k = ShaftKeyway::fromJson(doc.object(), ShaftKeyway());
+        k.enabled = true;
+        dlg.setKeyway(k);
+    }
+    if (dlg.exec() != QDialog::Accepted) return false;
+    storeKeyway(row, dlg.keyway());
+    return true;
+}
+
+void ShaftDialog::onItemChanged(QTableWidgetItem *item) {
+    if (item && item->column() == ColKeyway) {
+        const int row = item->row();
+        const bool checked = item->checkState() == Qt::Checked;
+        const QJsonDocument doc = QJsonDocument::fromJson(item->data(kKwRole).toString().toUtf8());
+        ShaftKeyway k = ShaftKeyway::fromJson(doc.object(), ShaftKeyway());
+        if (checked && !k.enabled) {
+            // 체크하면 설정창을 띄운다. 취소하면 체크를 되돌린다.
+            if (!editKeyway(row)) {
+                k.enabled = false;
+                storeKeyway(row, k);
+            }
+        } else if (!checked && k.enabled) {
+            k.enabled = false;                    // 값은 남겨 두어 다시 체크하면 이어서 고친다
+            storeKeyway(row, k);
+        }
+    }
+    updateTotal();
+}
+
 void ShaftDialog::onCellDoubleClicked(int row, int col) {
     if (col == ColDimLen) editLengthTolerance(row);
+    else if (col == ColKeyway) {
+        if (editKeyway(row)) updateTotal();
+    }
 }
 
 void ShaftDialog::editLengthTolerance(int row) {
@@ -244,6 +330,12 @@ void ShaftDialog::appendRow(const ShaftSegment &seg) {
     m_table->setItem(row, ColShowFit,  checkItem(seg.showFit));
     m_table->setItem(row, ColDimLen,   checkItem(seg.dimLength));
     storeLenTol(m_table->item(row, ColDimLen), seg.lenTolUse, seg.lenTolUpper, seg.lenTolLower);
+    m_table->setItem(row, ColKeyway,   checkItem(false));
+    {
+        QTableWidgetItem *kw = m_table->item(row, ColKeyway);
+        kw->setFlags(kw->flags() & ~Qt::ItemIsEditable);
+        showKeyway(kw, seg.keyway);
+    }
     m_table->blockSignals(wasBlocked);
 }
 
@@ -253,10 +345,10 @@ void ShaftDialog::setParams(const ShaftParams &params) {
     for (int i = 0; i < params.segments.size(); ++i) appendRow(params.segments.at(i));
     m_table->blockSignals(false);
 
-    m_leftEnd  = params.leftEnd;
-    m_rightEnd = params.rightEnd;
-    syncEndWidgets(0);
-    syncEndWidgets(1);
+    m_threadSide  = params.threadSide;
+    m_leftThread  = params.leftThread;
+    m_rightThread = params.rightThread;
+    syncThreadWidgets();
 
     m_centerLine->setChecked(params.drawCenterLine);
     m_diameterDims->setChecked(params.diameterDims);
@@ -291,10 +383,12 @@ ShaftParams ShaftDialog::params() const {
             s.lenTolLower = tol.at(2).toDouble();
         }
         s.dimLength    = !dl || dl->checkState() == Qt::Checked;
+        s.keyway       = rowKeyway(row);
         p.segments.append(s);
     }
-    p.leftEnd  = m_leftEnd;
-    p.rightEnd = m_rightEnd;
+    p.threadSide  = m_threadSide;
+    p.leftThread  = m_leftThread;
+    p.rightThread = m_rightThread;
     p.drawCenterLine = m_centerLine->isChecked();
     p.diameterDims   = m_diameterDims->isChecked();
     p.lengthDims     = m_lengthDims->isChecked();
@@ -306,10 +400,14 @@ ShaftParams ShaftDialog::params() const {
 
 void ShaftDialog::updateTotal() {
     const ShaftParams p = params();
-    m_totalLabel->setText(tr("구간 %1개 · 전체 길이 %2 mm · 최대 지름 %3 mm")
+    int keyways = 0;
+    for (int i = 0; i < p.segments.size(); ++i)
+        if (p.segments.at(i).keyway.enabled) ++keyways;
+    m_totalLabel->setText(tr("구간 %1개 · 전체 길이 %2 mm · 최대 지름 %3 mm · 키홈 %4개")
                               .arg(p.segments.size())
                               .arg(numText(p.totalLength()))
-                              .arg(numText(p.maxDiameter())));
+                              .arg(numText(p.maxDiameter()))
+                              .arg(keyways));
 }
 
 void ShaftDialog::addSegment() {
@@ -355,62 +453,63 @@ void ShaftDialog::moveDown() {
     if (row >= 0 && row + 1 < m_table->rowCount()) swapRows(row, row + 1);
 }
 
-void ShaftDialog::syncEndWidgets(int side) {
-    QComboBox *combo = comboRef(side);
-    combo->blockSignals(true);
-    combo->setCurrentIndex(int(endRef(side).type));
-    combo->blockSignals(false);
-    editBtnRef(side)->setEnabled(endRef(side).type != ShaftEndType::None);
+void ShaftDialog::syncThreadWidgets() {
+    m_threadCombo->blockSignals(true);
+    m_threadCombo->setCurrentIndex(int(m_threadSide));
+    m_threadCombo->blockSignals(false);
+    m_threadEdit->setEnabled(m_threadSide != ShaftThreadSide::None);
 }
 
-bool ShaftDialog::editEnd(int side) {
-    ShaftEnd &end = endRef(side);
-    if (end.type == ShaftEndType::None) return true;
-
+bool ShaftDialog::editThreadSizes() {
+    if (m_threadSide == ShaftThreadSide::None) return true;
     // 끝 구간(첫/마지막 행)의 지름·길이를 안내용으로 넘긴다.
     const int rows = m_table->rowCount();
-    double segD = 0.0;
-    double segL = 0.0;
+    double ld = 0.0, ll = 0.0, rd = 0.0, rl = 0.0;
     if (rows > 0) {
-        const int row = (side == 0) ? 0 : rows - 1;
-        segD = cellText(row, ColDiameter).toDouble();
-        segL = cellText(row, ColLength).toDouble();
+        ld = cellText(0, ColDiameter).toDouble();
+        ll = cellText(0, ColLength).toDouble();
+        rd = cellText(rows - 1, ColDiameter).toDouble();
+        rl = cellText(rows - 1, ColLength).toDouble();
     }
-
-    ShaftEndDialog dlg(end.type, segD, segL, this);
-    if (end.type == ShaftEndType::Keyway) {
-        ShaftKeyway kw = end.keyway;
-        if (kw.sectionPos < 0) kw.sectionPos = (side == 0) ? 0 : 2; // 기본: 끝단 쪽
-        dlg.setKeyway(kw);
-    }
-    else                                  dlg.setThread(end.thread);
+    ShaftThreadDialog dlg(m_threadSide, ld, ll, rd, rl, this);
+    dlg.setThreads(m_leftThread, m_rightThread);
     if (dlg.exec() != QDialog::Accepted) return false;
-
-    if (end.type == ShaftEndType::Keyway) end.keyway = dlg.keyway();
-    else                                  end.thread = dlg.thread();
+    m_leftThread  = dlg.leftThread();
+    m_rightThread = dlg.rightThread();
     return true;
 }
 
-void ShaftDialog::changeEnd(int side, int index) {
-    ShaftEnd &end = endRef(side);
-    const ShaftEndType prev = end.type;
-    ShaftEndType next = ShaftEndType::None;
-    if (index == 1) next = ShaftEndType::Keyway;
-    else if (index == 2) next = ShaftEndType::Thread;
-
-    end.type = next;
-    // 형상을 고르면 바로 크기 입력창을 띄운다. 취소하면 이전 선택으로 되돌린다.
-    if (next != ShaftEndType::None && !editEnd(side)) end.type = prev;
-    syncEndWidgets(side);
+void ShaftDialog::onThreadSideChanged(int index) {
+    const ShaftThreadSide prev = m_threadSide;
+    m_threadSide = (index == 1) ? ShaftThreadSide::Left : (index == 2) ? ShaftThreadSide::Right
+                 : (index == 3) ? ShaftThreadSide::Both : ShaftThreadSide::None;
+    // 고르면 바로 크기 입력창을 띄운다. 취소하면 이전 선택으로 되돌린다.
+    if (m_threadSide != ShaftThreadSide::None && !editThreadSizes()) m_threadSide = prev;
+    syncThreadWidgets();
 }
 
-void ShaftDialog::onLeftEndChanged(int index)  { changeEnd(0, index); }
-void ShaftDialog::onRightEndChanged(int index) { changeEnd(1, index); }
-void ShaftDialog::editLeftEnd()  { editEnd(0); }
-void ShaftDialog::editRightEnd() { editEnd(1); }
+void ShaftDialog::editThread() { editThreadSizes(); }
 
 void ShaftDialog::loadSample() {
     setParams(ShaftParams::sample());
+}
+
+void ShaftDialog::savePresetData() {
+    const ShaftParams p = params();
+    const QStringList problems = ShaftBuilder::validate(p);
+    if (!problems.isEmpty()) {
+        QMessageBox::warning(this, tr("데이터 저장"),
+                             tr("입력에 문제가 있어 저장하지 않았습니다.\n%1").arg(problems.join(QLatin1Char('\n'))));
+        return;
+    }
+    if (ShaftPresetDialog::savePreset(this, p))
+        m_totalLabel->setText(m_totalLabel->text() + tr("  ✔ 저장됨"));
+}
+
+void ShaftDialog::loadPresetData() {
+    ShaftPresetDialog dlg(this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    setParams(dlg.params());
 }
 
 void ShaftDialog::accept() {

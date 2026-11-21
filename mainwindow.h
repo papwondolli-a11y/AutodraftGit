@@ -134,6 +134,10 @@ private slots:
   void onSubWindowFloatingActivated(DrawSubWindow *subWindow); // [신규] 분리 창 활성화 슬롯
   void syncUndoActions(QUndoStack *stack); // [신규] Undo 스택 동기화
   void onCurrentFontChanged(const QString &family, qreal size); // [신규] 폰트 변경 처리
+  void onLayer3DDialog(); // [3D Layer] 메뉴 → 레이어 높이 설정 창
+  void onModel3DCheck();  // [3D Layer] 메뉴 → 3D 모델 추출 결과 요약
+  void onModel3DView();   // [3D 건축용] 메뉴 → 3D 보기 창
+  void onMechModel3DView(); // [3D 기계용] 메뉴 → 부품 3D 보기 창
 
   // [신규] CustomTitleBar의 시그널을 받을 슬롯들 (람다 대체용)
   void onActionSave();

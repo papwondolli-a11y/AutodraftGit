@@ -18,6 +18,12 @@ BoltTool::BoltTool(QObject *parent)
 void BoltTool::activate(MyGraphicsScene *scene) {
     AbstractTool::activate(scene);
 
+    // 헤드리스(MCP): 설정창·기본값 저장 없이 setHeadlessParams 로 받은 값을 그대로 쓴다.
+    if (m_headless) {
+        finishActivation();
+        return;
+    }
+
     // 마지막으로 사용한 호칭경/길이/레이어(외형선·골지름선)/2점지정여부/전나사여부를 다음 실행에도 유지한다.
     ToolDefaults bd("BoltTool", scene);
     QString savedDiameter     = bd.getString("Diameter", "M10");
@@ -59,6 +65,20 @@ void BoltTool::activate(MyGraphicsScene *scene) {
     bd.put("SideViewEnabled", m_sideViewEnabled);
 
     finishActivation(tr("볼트 배치 (%1 x %2)").arg(m_size.label).arg(m_length));
+}
+
+void BoltTool::setHeadlessParams(const HexBoltSize &size, double length, bool fullThread,
+                                 bool centerline, bool sideView,
+                                 const QString &outlineLayer, const QString &threadLayer) {
+    m_headless          = true;
+    m_size              = size;
+    m_length            = length;
+    m_fullThread        = fullThread;
+    m_centerlineEnabled = centerline;
+    m_sideViewEnabled   = sideView;
+    m_outlineLayerName  = outlineLayer;
+    m_threadLayerName   = threadLayer;
+    m_twoPointMode      = false;
 }
 
 QString BoltTool::positionPromptText() const {
@@ -307,4 +327,19 @@ QList<QGraphicsItem *> BoltTool::buildGeometry(const HexBoltSize &size, double l
                                   buildLocalArcs(size, length),
                                   buildLocalCircles(size, includeSide),
                                   origin, angleDeg, /*gripsEnabled=*/true);
+}
+
+// [3D 기계용] 육각볼트 규격·길이·나사부 길이를 3D 파라미터로 남긴다
+bool BoltTool::mechPartInfo(double length, QString &type, QString &namePrefix,
+                            QMap<QString, QVariant> &props) const {
+    type = QStringLiteral("MechHexBolt");
+    namePrefix = tr("볼트 %1x%2").arg(m_size.label).arg(length);
+    props[QStringLiteral("Label")] = m_size.label;
+    props[QStringLiteral("d")] = m_size.d;
+    props[QStringLiteral("s")] = m_size.s;
+    props[QStringLiteral("k")] = m_size.k;
+    props[QStringLiteral("pitch")] = m_size.pitch;
+    props[QStringLiteral("L")] = length;
+    props[QStringLiteral("threadLen")] = m_fullThread ? length : hexBoltThreadLength(m_size.d, length);
+    return true;
 }

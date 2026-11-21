@@ -1,3 +1,4 @@
+#include "openingheights.h"
 #include "plandoorbiswingtool.h"
 #include "plandoorsetupdialog.h"   // Setup 다이얼로그는 PlanDoorTool 과 완전히 동일한 필드(H,V,FrameType,Layer)라 재사용
 #include "planarchdata.h"
@@ -982,6 +983,7 @@ void PlanDoorBiSwingTool::placeDoor(
     SpaceFinish::storeProps(doorInfo.props, finishL, finishR);
 
     ctx->undoStack()->beginMacro(tr("양방향 여닫이 Type%1").arg(s_frameType + 1));
+    OpeningHeights::stamp(doorInfo.props, doorInfo.type, ctx->layerManager()); // 3D 개구부 높이 (문틀 레이어 기준)
     ctx->undoStack()->push(new RegisterSymbolCommand(m_scene->symbolRegistry(), doorUuid, doorInfo));
     for (int i = 0; i < newItems.size(); ++i)
         ctx->undoStack()->push(new AddEntityCommand(m_scene, newItems.at(i)));

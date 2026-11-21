@@ -2,6 +2,7 @@
 #include "holedata.h"
 #include "holedialog.h"
 #include "holeitem.h"
+#include "projectionview.h"
 #include "cadcommands.h"
 #include "commanddock.h"
 #include "drawingsettingscommand.h"
@@ -68,6 +69,12 @@ HoleTool::HoleTool(QObject *parent) : AbstractTool(parent) {}
 void HoleTool::activate(MyGraphicsScene *scene) {
     AbstractTool::activate(scene);
 
+    // 헤드리스(MCP): 설정창·기본값 저장 없이 setHeadlessParams 로 받은 값을 그대로 쓴다.
+    if (m_headless) {
+        resetToStart();
+        return;
+    }
+
     // DrawSubWindow::setTool()은 myScene->setTool()(→ 이 activate() 호출)이 끝난
     // "다음에" toolFinished 시그널을 연결한다. 다이얼로그를 여기서 바로 모달로 띄우면
     // 취소/닫기(X)/ESC로 즉시 reject 되어 emit toolFinished()가 아직 연결되지 않은
@@ -105,6 +112,18 @@ void HoleTool::activate(MyGraphicsScene *scene) {
 
         resetToStart();
     });
+}
+
+void HoleTool::setHeadlessParams(const MyHole &data, double offsetX, double offsetY,
+                                 int countX, double spacingX, int countY, double spacingY) {
+    m_headless = true;
+    m_pendingData = data;
+    m_offsetX = offsetX;
+    m_offsetY = offsetY;
+    m_arrayCountX = countX;
+    m_arraySpacingX = spacingX;
+    m_arrayCountY = countY;
+    m_arraySpacingY = spacingY;
 }
 
 void HoleTool::deactivate() {
@@ -255,6 +274,8 @@ void HoleTool::placeItemAndReset(const MyVector &pos) {
                 createHoleAt(pos + MyVector(i * m_arraySpacingX, j * m_arraySpacingY));
             }
         }
+        // [3D 기계용] 단면 회전체 측면도에 뚫은 구멍 → 3D·다른 투상도·정면 구멍 단면 갱신
+        ProjectionView::syncHoleLinks(ctx, m_scene);
         ctx->undoStack()->endMacro();
     } else {
         for (int j = 0; j < countY; ++j) {

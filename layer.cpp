@@ -11,7 +11,9 @@ Layer::Layer(const QString &name, const QColor &color, double weight,
     m_layerOn(layerOn),
     m_plotOn(plotOn),
     m_layerLock(layerLock),
-    m_printColor()
+    m_printColor(),
+    m_elevation(0.0),
+    m_height(0.0)
 {}
 
 bool Layer::isCurrent() const    { return m_current; }
@@ -35,3 +37,8 @@ void Layer::setPlotOn(bool v)             { m_plotOn = v; }
 void Layer::setLayerLock(bool v)          { m_layerLock = v; }
 void Layer::setPrintColor(const QColor &color)  { m_printColor = color; }
 void Layer::clearPrintColorOverride()           { m_printColor = QColor(); }
+
+double Layer::elevation() const { return m_elevation; }
+double Layer::height() const    { return m_height; }
+void Layer::setElevation(double v) { m_elevation = v; }
+void Layer::setHeight(double v)    { m_height = v; }

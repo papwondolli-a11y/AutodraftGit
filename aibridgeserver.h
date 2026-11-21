@@ -65,8 +65,27 @@ private:
   QJsonObject toolMultilineCorner(const QJsonObject &args, char kind);
   QJsonObject toolCreateStair(const QJsonObject &args);
   QJsonObject toolCreateElevator(const QJsonObject &args);
+  QJsonObject toolCreateBolt(const QJsonObject &args);
+  QJsonObject toolCreateHole(const QJsonObject &args);
+  QJsonObject toolCreateHolePolar(const QJsonObject &args);
+  QJsonObject toolCreateHoleSection(const QJsonObject &args);
   QJsonObject toolCreateDoor(const QJsonObject &args);
   QJsonObject toolCreateWindow(const QJsonObject &args);
+  QJsonObject toolSetLayerHeight(const QJsonObject &args); // [3D] 기존 레이어 기준높이·높이
+  QJsonObject toolGetModel3D(const QJsonObject &args);     // [3D] 2단계 모델 추출 결과
+  QJsonObject toolView3D(const QJsonObject &args);         // [3D] 3D 보기 창 + PNG
+  QJsonObject toolExport3DObj(const QJsonObject &args);    // [3D] OBJ 내보내기 (+ Blender)
+  QJsonObject toolCreateShaft(const QJsonObject &args);     // 기계 Tools 축 (설정창 없이)
+  QJsonObject toolCreateBearing(const QJsonObject &args);
+  QJsonObject toolCreateRevolve(const QJsonObject &args);
+  QJsonObject toolCreateProjection(const QJsonObject &args);   // 3D 데이터로 좌·우측면도·평면도
+  QJsonObject toolRegenProjections(const QJsonObject &args);   // 투상도 다시 그리기
+  QJsonObject toolCreateExtrude(const QJsonObject &args);      // 측면도 공간 → 축 방향 돌출
+  QJsonObject toolDepthMove(const QJsonObject &args);          // 기준면에서 깊이만큼 축 방향 이동   // 해칭 단면 + 회전축 → 3D 기계용 회전체   // 기계 Tools 깊은 홈 볼베어링 (설정창 없이)
+  void insertOpeningHeightsUsed(class MyGraphicsScene *scene, const QList<QString> &symBefore,
+                                QJsonObject &used);
+  bool readOpeningHeights(const QJsonObject &args, bool &hasSill, double &sill,
+                          bool &hasHeight, double &height, QJsonObject &err);
   QJsonObject toolCreateRoom(const QJsonObject &args);
   QJsonObject toolScreenshot(const QJsonObject &args);
   QJsonObject toolListBlocks(const QJsonObject &args);

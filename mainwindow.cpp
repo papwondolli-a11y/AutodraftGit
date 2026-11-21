@@ -25,6 +25,10 @@
 #include "inserttool.h"
 #include "layermanager.h"
 #include "layertableview.h"
+#include "layer3ddialog.h"
+#include "buildingmodel3d.h"
+#include "model3dwindow.h"
+#include "mech3dviewtool.h"
 #include "linetypedock.h"
 #include "mdicontroller.h"
 #include "menudocksynccontroller.h"
@@ -184,6 +188,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), dwgNo(1) {
           [this]() { cmdManager->executeStringCommand("save"); });
   connect(myMenuBar, &CustomMenuBar::saveAsFileRequested, this,
           [this]() { cmdManager->executeStringCommand("saveas"); });
+  connect(myMenuBar, &CustomMenuBar::layer3DRequested, this,
+          &MainWindow::onLayer3DDialog);
+  connect(myMenuBar, &CustomMenuBar::model3DCheckRequested, this,
+          &MainWindow::onModel3DCheck);
+  connect(myMenuBar, &CustomMenuBar::model3DViewRequested, this,
+          &MainWindow::onModel3DView);
+  connect(myMenuBar, &CustomMenuBar::mechModel3DViewRequested, this,
+          &MainWindow::onMechModel3DView);
 
   m_subControls = new SubWindowControls(this);
   m_mdiController = new MdiController(mdiArea, m_subControls, this);
@@ -1581,3 +1593,59 @@ void MainWindow::openDrawingFile(const QString &path) {
   }
 }
 
+
+// [3D 건축용] 현재 도면창의 레이어별 기준높이·높이 입력 창
+void MainWindow::onLayer3DDialog() {
+  if (!m_appContext || !m_appContext->activeDrawWindow()) {
+    QMessageBox::information(this, QStringLiteral("3D 건축용"),
+                             tr("열린 도면이 없습니다. 도면을 먼저 열어 주세요."));
+    return;
+  }
+  Layer3DDialog dlg(m_appContext, this);
+  dlg.exec();
+}
+
+// [3D 건축용] 현재 도면에서 3D 모델(벽·개구부)을 추출해 결과를 요약 표시
+void MainWindow::onModel3DCheck() {
+  DrawSubWindow *dw = m_appContext ? m_appContext->activeDrawWindow() : nullptr;
+  if (!dw || !dw->scene()) {
+    QMessageBox::information(this, QStringLiteral("3D 건축용"),
+                             tr("열린 도면이 없습니다. 도면을 먼저 열어 주세요."));
+    return;
+  }
+  const Model3D model = BuildingModel3D::build(dw->scene(), dw->layerManager());
+  QMessageBox box(this);
+  box.setWindowTitle(tr("3D 모델 검사"));
+  box.setIcon(QMessageBox::Information);
+  box.setText(BuildingModel3D::summaryText(model));
+  box.exec();
+}
+
+// [3D 건축용] 3D 보기 창 — 창은 하나만 두고, 열 때마다 현재 도면으로 다시 추출
+void MainWindow::onModel3DView() {
+  DrawSubWindow *dw = m_appContext ? m_appContext->activeDrawWindow() : nullptr;
+  if (!dw || !dw->scene()) {
+    QMessageBox::information(this, QStringLiteral("3D 건축용"),
+                             tr("열린 도면이 없습니다. 도면을 먼저 열어 주세요."));
+    return;
+  }
+  Model3DWindow *win = Model3DWindow::instance(m_appContext, this);
+  win->setMode(Model3DWindow::Architecture);
+  win->showDrawing(dw, true);
+  win->show();
+  win->raise();
+  win->activateWindow();
+}
+
+// [3D 기계용] 부품 3D 보기 — 기계 Tools 가 저장한 파라미터로 부품 3D 를 만든다
+void MainWindow::onMechModel3DView() {
+  DrawSubWindow *dw = m_appContext ? m_appContext->activeDrawWindow() : nullptr;
+  if (!dw || !dw->scene()) {
+    QMessageBox::information(this, tr("3D 기계용"),
+                             tr("열린 도면이 없습니다. 도면을 먼저 열어 주세요."));
+    return;
+  }
+  // 도면에서 볼 부품을 클릭으로 고른 뒤(Enter/Space = 전체) 3D 보기 창을 연다.
+  // 미리 부품을 선택해 두었으면 바로 연다.
+  m_appContext->startTool(new Mech3DViewTool());
+}

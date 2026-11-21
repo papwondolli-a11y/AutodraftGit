@@ -31,7 +31,14 @@ public:
     void mouseMove(QPointF pos) override;
     void keyPress(QKeyEvent *event) override;
 
+    // MCP 등 자동 배치: 설정되어 있으면 activate 에서 설정창 없이 이 값을 쓴다
+    static void setHeadlessParams(const ShaftParams &params);
+    static void clearHeadless();
+
 private:
+    static bool        s_headless;
+    static ShaftParams s_headlessParams;
+
     void showPositionPrompt();
     void placeAt(const QPointF &origin);
     void finishTool();

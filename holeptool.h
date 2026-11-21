@@ -22,6 +22,10 @@ public:
     void keyPress(QKeyEvent *event) override;
     bool processCommand(const QString &command) override;
 
+    // 헤드리스(MCP): 설정창 없이 값을 그대로 쓴다.
+    // 점 배치는 mousePress(anchor), 원/호 선택 배치는 processCommand("s") 후 두 원/호를 클릭.
+    void setHeadlessParams(const MyHole &data, double centerDistance, double arrayRange, int arrayCount);
+
 private:
     void cancelTool();
     void placeArrayAndReset(const MyVector &anchor, double distance);
@@ -38,6 +42,8 @@ private:
     int m_arrayCount = 1;
     MyVector m_firstRefCenter;
     double m_firstRefRadius = 0.0;
+
+    bool m_headless = false; // true면 activate()에서 설정창을 건너뛴다(setHeadlessParams)
 };
 
 #endif // HOLEPTOOL_H

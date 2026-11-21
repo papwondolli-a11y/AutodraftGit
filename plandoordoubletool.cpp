@@ -1,3 +1,4 @@
+#include "openingheights.h"
 #include "plandoordoubletool.h"
 #include "plandoordoublesetupdialog.h"
 #include "planarchdata.h"
@@ -1153,6 +1154,7 @@ void PlanDoorDoubleTool::placeDoor(
 
     ctx->undoStack()->beginMacro(m_style == 1 ? tr("쌍여닫이 114")
                                                : tr("쌍여닫이 Type%1").arg(s_frameType + 1));
+    OpeningHeights::stamp(doorInfo.props, doorInfo.type, ctx->layerManager()); // 3D 개구부 높이 (문틀 레이어 기준)
     ctx->undoStack()->push(new RegisterSymbolCommand(m_scene->symbolRegistry(), doorUuid, doorInfo));
     for (int i = 0; i < newItems.size(); ++i)
         ctx->undoStack()->push(new AddEntityCommand(m_scene, newItems.at(i)));

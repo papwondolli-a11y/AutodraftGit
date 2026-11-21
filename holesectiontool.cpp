@@ -59,6 +59,32 @@ void HoleSectionTool::activate(MyGraphicsScene *scene) {
     showSelectPrompt();
 }
 
+bool HoleSectionTool::selectHoleHeadless(HoleItem *hole, double value, const QString &hiddenLayer) {
+    if (!hole || !m_scene) return false;
+
+    m_selectedHole = hole->holeData();
+    m_materialThickness = 0.0;
+    m_twoPointMode = false;
+
+    m_selectedHoleGroupId = hole->data(HOLE_DATA_GROUP_ID).toString();
+    if (m_selectedHoleGroupId.isEmpty()) {
+        m_selectedHoleGroupId = QUuid::createUuid().toString();
+        hole->setData(HOLE_DATA_GROUP_ID, m_selectedHoleGroupId);
+    }
+
+    if (m_selectedHole.throughHole) {
+        m_materialThickness = (value > 0.0) ? value : m_selectedHole.diameter;
+    } else if (value > 0.0) {
+        m_selectedHole.threadDepth = value;
+    }
+
+    m_hiddenLineMode = !hiddenLayer.isEmpty();
+    m_hiddenLineLayer = hiddenLayer;
+
+    m_state = WaitPlacePoint;
+    return true;
+}
+
 void HoleSectionTool::deactivate() {
     if (m_scene) m_scene->clearOverlay();
     AbstractTool::deactivate();

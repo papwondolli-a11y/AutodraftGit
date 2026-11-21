@@ -8,6 +8,8 @@
 #include "layermanager.h"
 #include "layer.h"
 #include "snapmanager.h"
+#include "lineitem.h"
+#include "mechparttag.h"
 #include "drawingsettingscommand.h"
 
 #include <QUndoStack>
@@ -196,6 +198,21 @@ void AbstractBoltPlacementTool::placeItemAndReset(double angleDeg, double length
 
     if (ctx && ctx->undoStack()) {
         ctx->undoStack()->beginMacro(toolMacroLabel());
+
+        // [3D 기계용] 첫 외형선(중심선·골지름선·가상선 제외)을 기준 도형으로 부품 등록
+        QString partType, partPrefix;
+        QMap<QString, QVariant> partProps;
+        if (m_scene && mechPartInfo(effectiveLength, partType, partPrefix, partProps)) {
+            for (int i = 0; i < items.size(); ++i) {
+                QGraphicsItem *gi = items.at(i);
+                if (!dynamic_cast<LineItem *>(gi) || gi->data(kBoltCenterlineLayerDataKey).toBool() ||
+                    gi->data(kBoltPhantomLayerDataKey).toBool() || gi->data(kBoltThreadDiaLayerDataKey).toBool())
+                    continue;
+                MechPartTag::registerPart(m_scene, ctx->undoStack(), gi, partType, partPrefix, partProps,
+                                          m_origin, angleDeg);
+                break;
+            }
+        }
         for (int i = 0; i < items.size(); ++i) {
             QGraphicsItem *gi = items.at(i);
             // buildPlacementGeometry()가 만드는 아이템은 항상 LineItem/ArcItem/CircleItem
@@ -246,4 +263,13 @@ void AbstractBoltPlacementTool::placeItemAndReset(double angleDeg, double length
     m_state = WaitPosition;
     if (m_scene) m_scene->clearOverlay();
     showPositionPrompt();
+}
+
+bool AbstractBoltPlacementTool::mechPartInfo(double length, QString &type, QString &namePrefix,
+                                             QMap<QString, QVariant> &props) const {
+    Q_UNUSED(length);
+    Q_UNUSED(type);
+    Q_UNUSED(namePrefix);
+    Q_UNUSED(props);
+    return false;
 }

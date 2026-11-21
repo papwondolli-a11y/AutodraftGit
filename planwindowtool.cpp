@@ -1,3 +1,4 @@
+#include "openingheights.h"
 #include "planwindowtool.h"
 #include "planarchdata.h"
 #include "spacefinish.h"
@@ -1249,6 +1250,7 @@ void PlanWindowTool::placeWindow(const QPointF &p1, double angleDeg, double V, b
     SpaceFinish::storeProps(winInfo.props, finishL, finishR);
 
     ctx->undoStack()->beginMacro(tr("평면 창문 배치"));
+    OpeningHeights::stamp(winInfo.props, winInfo.type, ctx->layerManager()); // 3D 개구부 높이 (문틀 레이어 기준)
     ctx->undoStack()->push(new RegisterSymbolCommand(m_scene->symbolRegistry(), winUuid, winInfo));
 
     for (int i = 0; i < newEntities.size(); ++i)

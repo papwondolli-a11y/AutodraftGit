@@ -8,11 +8,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Qt configuration
 # Qt 6 경로 명시적 지정 (6.11.0 버전 및 Anaconda 충돌 방지)
-# 다른 위치에 설치했다면: cmake -DQT_ROOT=<경로>
-set(QT_ROOT "C:/Qt/6.11.0/mingw_64" CACHE PATH "Qt 6 설치 경로")
-set(Qt6_DIR "${QT_ROOT}/lib/cmake/Qt6")
-set(CMAKE_PREFIX_PATH "${QT_ROOT}")
-list(PREPEND CMAKE_PREFIX_PATH "${QT_ROOT}")
+set(Qt6_DIR "C:/Qt/6.11.0/mingw_64/lib/cmake/Qt6")
+set(CMAKE_PREFIX_PATH "C:/Qt/6.11.0/mingw_64")
+list(PREPEND CMAKE_PREFIX_PATH "C:/Qt/6.11.0/mingw_64")
 
 set(QT_DEFAULT_MAJOR_VERSION 6)
 
@@ -102,6 +100,15 @@ set(SOURCES
     layercomboboxmanager.cpp
     layermanager.cpp
     layertableview.cpp
+    layer3ddialog.cpp
+    openingheights.cpp
+    buildingmodel3d.cpp
+    model3dview.cpp
+    model3dwindow.cpp
+    model3dmesh.cpp
+    model3dexport.cpp
+    mechmodel3d.cpp
+    mechparttag.cpp
     mdicontroller.cpp
     lineitem.cpp
     linetool.cpp
@@ -226,6 +233,31 @@ set(SOURCES
     fittolerancecalculator.cpp
     dwgexporter.cpp
     acadrustimporter.cpp
+    deepgroovebearingdata.cpp
+    deepgroovebearingdialog.cpp
+    deepgroovebearingtool.cpp
+    taperedrollerbearingdata.cpp
+    taperedrollerbearingdialog.cpp
+    taperedrollerbearingtool.cpp
+    thrustbearingdata.cpp
+    thrustbearingdialog.cpp
+    thrustbearingtool.cpp
+    revolveprofile.cpp
+    revolvebodydialog.cpp
+    revolvebodytool.cpp
+    projectionview.cpp
+    projectionviewtool.cpp
+    extrudefeature.cpp
+    extrudetool.cpp
+    depthmovetool.cpp
+    mech3dviewtool.cpp
+    holefeature.cpp
+    shaftbuilder.cpp
+    shaftdata.cpp
+    shaftdialog.cpp
+    shaftenddialog.cpp
+    shaftpresetdialog.cpp
+    shafttool.cpp
     twolinetool.cpp
     twolinesetupdialog.cpp
     attributeinputdialog.cpp
@@ -278,6 +310,8 @@ set(SOURCES
     hbbolttool.cpp
     hbboltsetupdialog.cpp
     boltpickerdialog.cpp
+    bearingpickerdialog.cpp
+    bearinglayer.cpp
     polygontool.cpp
     stairplantool.cpp
     stairplandialog.cpp
@@ -291,14 +325,6 @@ set(SOURCES
     ribtool.cpp
     insulationtool.cpp
     detailviewtool.cpp
-    shaftbuilder.cpp
-    shaftdata.cpp
-    shaftdialog.cpp
-    shaftenddialog.cpp
-    shafttool.cpp
-    deepgroovebearingdata.cpp
-    deepgroovebearingdialog.cpp
-    deepgroovebearingtool.cpp
     detailviewsetupdialog.cpp
 )
 
@@ -388,6 +414,16 @@ set(HEADERS
     layercomboboxmanager.h
     layermanager.h
     layertableview.h
+    layer3ddialog.h
+    openingheights.h
+    buildingmodel3d.h
+    model3dview.h
+    model3dwindow.h
+    model3dmesh.h
+    model3dexport.h
+    mechmodel3d.h
+    mechpartdata.h
+    mechparttag.h
     mdicontroller.h
     lineitem.h
     hairlinepen.h
@@ -521,6 +557,32 @@ set(HEADERS
     fittolerancecalculator.h
     dwgexporter.h
     acadrustimporter.h
+    deepgroovebearingdata.h
+    deepgroovebearingdialog.h
+    deepgroovebearingtool.h
+    taperedrollerbearingdata.h
+    taperedrollerbearingdialog.h
+    taperedrollerbearingtool.h
+    thrustbearingdata.h
+    bearingrotation.h
+    thrustbearingdialog.h
+    thrustbearingtool.h
+    revolveprofile.h
+    revolvebodydialog.h
+    revolvebodytool.h
+    projectionview.h
+    projectionviewtool.h
+    extrudefeature.h
+    extrudetool.h
+    depthmovetool.h
+    mech3dviewtool.h
+    holefeature.h
+    shaftbuilder.h
+    shaftdata.h
+    shaftdialog.h
+    shaftenddialog.h
+    shaftpresetdialog.h
+    shafttool.h
     twolinetool.h
     twolinesetupdialog.h
     attributeinputdialog.h
@@ -575,6 +637,8 @@ set(HEADERS
     hbbolttool.h
     hbboltsetupdialog.h
     boltpickerdialog.h
+    bearingpickerdialog.h
+    bearinglayer.h
     polygontool.h
     stairplantool.h
     stairplandialog.h
@@ -589,14 +653,6 @@ set(HEADERS
     insulationtool.h
     stairsymboldata.h
     detailviewtool.h
-    shaftbuilder.h
-    shaftdata.h
-    shaftdialog.h
-    shaftenddialog.h
-    shafttool.h
-    deepgroovebearingdata.h
-    deepgroovebearingdialog.h
-    deepgroovebearingtool.h
     detailregiondata.h
     detailviewsetupdialog.h
 )
