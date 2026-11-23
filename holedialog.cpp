@@ -6,9 +6,74 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QVBoxLayout>
 #include <algorithm>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 입력 검사 (구멍R·구멍P 공용)
+// ─────────────────────────────────────────────────────────────────────────────
+QString HoleInputCheck::problem(const MyHole &hole, Field &field) {
+    const double eps = 1e-9;
+    field = None;
+    if (!hole.throughHole) {
+        if (hole.isThreaded) {
+            // 막힌 탭: 드릴 깊이 = 탭 깊이 + 여유 (구멍 단면 규칙) → 탭 깊이만 있으면 기본 구멍 깊이는 0 이어도 된다
+            if (hole.threadDepth <= eps) {
+                field = ThreadDepth;
+                return QObject::tr("탭 깊이(DP)가 0 입니다.\n탭 깊이를 입력하세요.");
+            }
+        } else if (hole.depth <= eps) {
+            // 막힌 구멍(탭 없음): 드릴 깊이
+            field = BaseDepth;
+            return QObject::tr("막힌 구멍의 깊이(DP)가 0 입니다.\n깊이를 입력하세요.");
+        }
+    }
+    // 카운터보어: 지름은 기본 구멍보다 커야 하고 깊이는 0 보다 커야 한다
+    if (hole.hasCounterbore) {
+        if (hole.cbDiameter <= hole.diameter + eps) {
+            field = CbDiameter;
+            return QObject::tr("카운터보어 지름(Ø%1)이 기본 구멍 지름(Ø%2)보다 커야 합니다.\n지름을 다시 입력하세요.")
+                .arg(hole.cbDiameter).arg(hole.diameter);
+        }
+        if (hole.cbDepth <= eps) {
+            field = CbDepth;
+            return QObject::tr("카운터보어 깊이(DP)가 0 입니다.\n깊이를 입력하세요.");
+        }
+    }
+    // 카운터싱크: 지름이 기본 구멍과 같으면 경사면이 생기지 않는다
+    if (hole.hasCountersink && hole.csDiameter <= hole.diameter + eps) {
+        field = CsDiameter;
+        return QObject::tr("카운터싱크 지름(Ø%1)이 기본 구멍 지름(Ø%2)보다 커야 합니다.\n지름을 다시 입력하세요.")
+            .arg(hole.csDiameter).arg(hole.diameter);
+    }
+    return QString();
+}
+
+void HoleDialog::accept() {
+    HoleInputCheck::Field field = HoleInputCheck::None;
+    const QString msg = HoleInputCheck::problem(resultData(), field);
+    if (!msg.isEmpty()) {
+        QMessageBox::warning(this, tr("구멍 설정"), msg);
+        // 고칠 칸으로 돌아가 값 전체를 선택해 바로 다시 입력할 수 있게
+        QDoubleSpinBox *target = nullptr;
+        switch (field) {
+        case HoleInputCheck::BaseDepth:   target = m_spnDepth; break;
+        case HoleInputCheck::ThreadDepth: target = m_spnThreadDepth; break;
+        case HoleInputCheck::CbDiameter:  target = m_spnCbDiameter; break;
+        case HoleInputCheck::CbDepth:     target = m_spnCbDepth; break;
+        case HoleInputCheck::CsDiameter:  target = m_spnCsDiameter; break;
+        default: break;
+        }
+        if (target) {
+            target->setFocus();
+            target->selectAll();
+        }
+        return;   // 창을 닫지 않음
+    }
+    QDialog::accept();
+}
 
 HoleDialog::HoleDialog(LayerManager *layerMgr, QWidget *parent)
     : QDialog(parent), m_layerMgr(layerMgr) {
@@ -312,8 +377,11 @@ void HoleDialog::updateThreadDepthConstraint() {
 
     double baseDepth = m_spnDepth->value();
     double maxThreadDepth = std::max(0.0, baseDepth - clearance);
-    m_spnThreadDepth->setMaximum(baseDepth > 0.0 ? maxThreadDepth : 1000.0);
-    if (enabled) m_spnThreadDepth->setValue(maxThreadDepth);
+    // 기본 구멍 깊이가 0(또는 여유보다 작음)이면 탭 깊이만으로 판다(드릴 깊이 = 탭 깊이 + 여유) →
+    // 탭 깊이를 제한하거나 0 으로 덮어쓰지 않는다
+    const bool baseGiven = maxThreadDepth > 0.0;
+    m_spnThreadDepth->setMaximum(baseGiven ? maxThreadDepth : 1000.0);
+    if (enabled && baseGiven) m_spnThreadDepth->setValue(maxThreadDepth);
 }
 
 void HoleDialog::onThreadSpecChanged(const QString &text) {

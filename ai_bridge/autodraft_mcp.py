@@ -756,19 +756,56 @@ TOOLS = [
                         "kind = left(좌측면)|right(우측면)|top(평면/외형), at = 놓을 점. 측면도는 축선 위(at 를 축선에 투영), "
                         "평면도는 축과 나란히(at 까지 수직 이동)로 정면과 자동 정렬. 보이는 선 = 현재 레이어, 숨은선 = '숨은선' 레이어, 중심선."),
         "inputSchema": {"type": "object", "properties": {
-            "part": {"type": "string"}, "kind": {"type": "string", "enum": ["left", "right", "top"]}, "at": POINT,
+            "part": {"type": "string"}, "kind": {"type": "string", "enum": ["left", "right", "top", "face"]}, "at": POINT,
+            "face": {**POINT, "description": "kind=face(보조 투상도): 판이면 정면으로 볼 판의 변 근처 점(뷰는 그 면 법선 방향으로 기울여 정렬). 회전체면 측면도에 그린 받침대(붙은 돌출) 변 근처 점(뷰는 평면도처럼 축과 나란히, 그 면을 정면으로 봄)"},
             "hidden": {"type": "boolean", "description": "숨은선(점선)도 그리기 (기본 false)"}},
             "required": ["part", "at"]},
+    },
+    {
+        "name": "insert_bearing",
+        "description": ("기계 Tools '베어링 넣기': 축(create_shaft) 구간 위 점(at, 붙일 턱 쪽 끝 가까이)을 주면 안지름 = 구간 지름인 규격 중 "
+                        "name(생략 = 검사 '맞음' 첫 규격)을 축선에 맞춰 턱에 붙여 그린다. type = deepgroove(기본)|tapered, "
+                        "k5 = 축 공차를 k5 로(축 데이터만). 치수·중심선·해칭·전체그리기는 각 베어링 도구 설정을 따름. 응답 candidates = 규격·검사(폭·턱 높이·끼울 쪽)."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": POINT, "type": {"type": "string", "enum": ["deepgroove", "tapered"]}, "name": {"type": "string"},
+            "k5": {"type": "boolean"},
+            "distance": {"type": "number", "description": "기준면에서 베어링 옆면까지 거리 (생략 = 턱에 붙임)"},
+            "from": {"type": "string", "enum": ["shoulder", "end"], "description": "거리 기준: 고른 턱(기본) | 구간 반대쪽 끝"}},
+            "required": ["at"]},
+    },
+    {
+        "name": "shaft_info",
+        "description": ("축(create_shaft) 외형 위의 한 점(at)이 속한 구간 정보: 지름·공차(편차)·길이·위치·키홈·모따기·나사. "
+                        "선택 도구로 축을 클릭했을 때와 같은 계산이며 도면에 그 구간 강조와 말풍선을 띄운다."),
+        "inputSchema": {"type": "object", "properties": {"at": POINT}, "required": ["at"]},
+    },
+    {
+        "name": "draw_isometric",
+        "description": ("3D 기계용 '등각도 그리기': 기계 부품을 Blender 로 구멍·파내기·합치기를 적용한 모양으로 만든 뒤 "
+                        "모서리·윤곽선을 도면 선으로 그린다(at = 그림 가운데). view = iso(KS 등각도, 기본) | window(부품 3D 보기 창의 현재 화면), "
+                        "hidden = 숨은선도(숨은선 레이어), visibleOnly = 3D 창에 보이는 부품만. 몇 초 걸린다."),
+        "inputSchema": {"type": "object", "properties": {
+            "at": POINT, "view": {"type": "string", "enum": ["iso", "window"]},
+            "hidden": {"type": "boolean"}, "visibleOnly": {"type": "boolean"}},
+            "required": ["at"]},
     },
     {
         "name": "create_extrude",
         "description": ("3D 기계용 '돌출': 단면 회전체의 좌·우측면도에 그린 닫힌 공간(투상 원도 경계)을 축 방향으로 돌출한다(받침대 등). "
                         "area = {box:[x,y,폭,높이] 경계 후보 사각, picks:[[x,y],…] 내부 점(생략 = 복합모양)}, "
                         "offset = 그 측면 쪽 부품 끝면에서 시작 거리, depth = 깊이, merge = 부품에 합치기(기본 true), name. "
-                        "3D·다른 투상도가 자동 갱신된다."),
+                        "3D·다른 투상도가 자동 갱신된다. "
+                        "회전체 측면도 근처가 아니거나 standalone=true 면 '단독 돌출'(판·블록): 공간을 도면에 수직(+Z, 보는 쪽)으로 "
+                        "offset(시작 Z)부터 depth(두께)만큼, symmetric=true 면 시작 Z 가 가운데. 공간 안의 닫힌 모양 = 관통 구멍, "
+                        "공간 안에 create_hole 로 놓은 구멍 = 앞면에서 파는 구멍(탭·C/B·C/S 포함). "
+                        "판의 측면도·보조 투상도(create_projection) 안의 공간이면 그 면에 붙는 '돌기': 뷰의 바깥 법선으로 depth, "
+                        "시작 = 그 아래 판 표면, merge(기본 true) = 판에 합치기."),
         "inputSchema": {"type": "object", "properties": {
             "area": {"type": "object"}, "name": {"type": "string"},
-            "offset": {"type": "number"}, "depth": {"type": "number"}, "merge": {"type": "boolean"}},
+            "offset": {"type": "number"}, "depth": {"type": "number"}, "merge": {"type": "boolean"},
+            "standalone": {"type": "boolean"}, "symmetric": {"type": "boolean"},
+            "cut": {"type": "boolean", "description": "파내기(메뉴 3D 기계용 > 파내기): 판 측면·보조 뷰 = 그 면에서 안쪽, 판 정면 안 닫힌 모양 = 앞면에서 −Z 포켓, 회전체 측면도 = 끝면에서 홈. depth = 깊이"},
+            "through": {"type": "boolean", "description": "cut 일 때 관통 (판만)"}},
             "required": ["area", "depth"]},
     },
     {

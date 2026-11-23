@@ -616,3 +616,14 @@ void TaperedRollerBearingTool::keyPress(QKeyEvent *event) {
     }
     AbstractTool::keyPress(event);
 }
+
+void TaperedRollerBearingTool::placeDirect(IAppContext *ctx, MyGraphicsScene *scene, const TaperedRollerBearingParams &params, const QPointF &origin,
+                     double angleDeg) {
+    if (!ctx || !scene) return;
+    TaperedRollerBearingTool t;
+    t.setContext(ctx);
+    t.m_scene = scene;
+    t.m_params = params;
+    t.m_angleDeg = angleDeg;
+    t.placeAt(origin);
+}

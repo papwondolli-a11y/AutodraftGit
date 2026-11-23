@@ -29,6 +29,10 @@ public:
 
     // 열려 있으면 그 창, 없으면 새로 만든다 (메뉴·MCP 공용, 창은 하나)
     static Model3DWindow *instance(IAppContext *context, QWidget *parent);
+    // 이미 열린 창 (없으면 nullptr, 새로 만들지 않음)
+    static Model3DWindow *existing();
+    // 지금 보이는 모델 (기계용 = 고른 부품만) — 등각도 그리기
+    const Model3D &currentModel() const { return m_model; }
 
     // 건축용 = BuildingModel3D(레이어 높이로 벽 돌출), 기계용 = MechModel3D(기계 Tools 파라메트릭 부품)
     enum Mode { Architecture = 0, Mechanical };
@@ -58,6 +62,7 @@ private slots:
     void onSide();
     void onExportObj();     // OBJ 파일로 저장 (위치 선택)
     void onOpenBlender();   // 임시 OBJ + Blender 실행
+    void onDrawIso();       // 기계용: 지금 화면 방향으로 도면에 등각도 그리기 (IsoDrawTool)
     void onPrecisionChanged(int index);   // 기계용: 원 둘레 분할 수
 
 private:
@@ -78,6 +83,7 @@ private:
     QLabel *m_status = nullptr;
     QLabel *m_precisionLabel = nullptr;
     QComboBox *m_precision = nullptr;   // 기계용에서만 보임
+    QWidget *m_drawIso = nullptr;       // 기계용에서만 보임 [도면에 그리기]
 };
 
 #endif // MODEL3DWINDOW_H

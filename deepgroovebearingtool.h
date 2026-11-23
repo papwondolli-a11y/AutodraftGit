@@ -62,6 +62,10 @@ public:
     static void setHeadlessParams(const DeepGrooveBearingParams &params);
     static void clearHeadless();
 
+    // 베어링 넣기(축에 맞춰): 설정창·클릭 없이 origin(기준점)·angleDeg(축 방향) 에 바로 그림 (한 undo 매크로)
+    static void placeDirect(IAppContext *ctx, MyGraphicsScene *scene, const DeepGrooveBearingParams &params, const QPointF &origin,
+                            double angleDeg);
+
 private:
     static bool                    s_headless;
     static DeepGrooveBearingParams s_headlessParams;

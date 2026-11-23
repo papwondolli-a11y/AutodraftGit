@@ -32,8 +32,12 @@ public:
     static Model3D build(MyGraphicsScene *scene);
 
     // 축 하나 (origin = 왼쪽 끝면 중심) → 본체 + 키홈 절삭체
+    //   loops·holes·secHoles = 축의 회전 단면과 구멍(측면도 구멍R·구멍P, 정면 구멍 단면) → 구멍 커터
     static QList<Model3DMeshPart> shaftParts(const ShaftParams &params, const QPointF &origin,
-                                             const QString &name);
+                                             const QString &name,
+                                             const QList<RevolveLoop> &loops = QList<RevolveLoop>(),
+                                             const QList<HoleFeature> &holes = QList<HoleFeature>(),
+                                             const QList<SectionHole> &secHoles = QList<SectionHole>());
 
     // 깊은 홈 볼베어링 (origin = 베어링 중심, angleDeg = 축선 방향) → 내·외륜 + 볼
     static QList<Model3DMeshPart> deepGrooveBearingParts(double d, double D, double B, double r,
@@ -51,7 +55,8 @@ public:
     static QList<Model3DMeshPart> revolveParts(const QList<RevolveLoop> &loops, const QPointF &origin,
                                                double angleDeg, const QString &name,
                                                const QMap<QString, QString> &fits,
-                                               const QList<HoleFeature> &holes = QList<HoleFeature>());
+                                               const QList<HoleFeature> &holes = QList<HoleFeature>(),
+                                               const QList<SectionHole> &secHoles = QList<SectionHole>());
 
     // 투상도용: 부품(uuid)의 회전 단면(축 좌표 x·r, 바깥 고리 반시계 / 구멍 고리 시계)과 현재 축 시작점·방향.
     //   회전체가 아닌 부품(볼트 등)이거나 찾지 못하면 false
@@ -60,6 +65,15 @@ public:
 
     // 측면도 돌출 (ExtrudeFeature) → 닫힌 프리즘. partName = 부품 이름(합치기면 "<호스트>_합침N")
     static Model3DMeshPart extrudePart(const ExtrudeInfo &info, const QString &partName);
+    // 단독 돌출(판·블록)의 구멍: PlateView::holes (정면 -Z · 측면도/평면도에 놓은 면 구멍 · 정면 구멍 단면의 옆면 구멍)
+    //   → 임의 축 커터 + 3D 보기 입구 표시(앞면 구멍만). 섬(공간 안 닫힌 모양) = 관통 기둥 커터
+    static QList<Model3DMeshPart> plateHoleCutters(MyGraphicsScene *scene, const QString &uuid, const ExtrudeInfo &info,
+                                                   const QString &partName, Model3DMeshGroup &mark);
+    // 회전체에 붙은 돌출(받침대 등)의 구멍: 회전체 보조 투상도에 놓은 구멍R·구멍P (ProjectionView::auxHolesOf)
+    //   → 그 면에서 법선 반대로 파는 커터 "<partName>_구멍커터"(+ 탭 나사커터) + 3D 보기 입구 표시
+    static QList<Model3DMeshPart> hostExtrudeHoleCutters(MyGraphicsScene *scene, const QString &extrudeUuid,
+                                                         const ExtrudeInfo &info, const QString &partName,
+                                                         Model3DMeshGroup &mark);
 
     static QString summaryText(const Model3D &model);
 

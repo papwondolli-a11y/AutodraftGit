@@ -4,6 +4,10 @@
 #include "gripitem.h"
 #include "iappcontext.h"
 #include "mygraphicsscene.h"
+#include "projectionview.h"
+#include "shaftpick.h"
+#include "commanddock.h"
+#include "selectionmanager.h"
 #include "snapmanager.h"
 #include "leaderitem.h"
 #include "leadertextedittool.h"
@@ -103,6 +107,25 @@ void SelectTool::mousePress(QPointF pos, Qt::MouseButton button) {
   }
 
   QGraphicsItem *targetItem = itemAtPos(pos);
+  // [3D 기계용] 축을 클릭하면 그 지점 구간(지름·공차·길이·키홈) 표시
+  ShaftPickInfo shaftPick;
+  const bool isShaft = targetItem && ShaftPick::pick(m_scene, targetItem, pos, shaftPick);
+  if (isShaft && targetItem->isSelected() &&
+      (ShaftPick::last().uuid != shaftPick.uuid || ShaftPick::last().seg != shaftPick.seg)) {
+    // 이미 선택된 축의 다른 구간 → 선택은 그대로, 정보만 바꿈
+    ShaftPick::setLast(shaftPick);
+    ShaftPick::showOverlay(m_scene, shaftPick);
+    if (ctx && ctx->commandDock())
+      ctx->commandDock()->logMessage(shaftPick.commandLine, CommandDock::Info);
+    if (ctx && ctx->selectionManager())
+      emit ctx->selectionManager()->selectionChanged(ctx->selectionManager()->selectedItems());
+    return;
+  }
+  if (isShaft && !targetItem->isSelected())
+    ShaftPick::setLast(shaftPick);      // 선택 변경 → 속성 창이 읽음
+  else
+    ShaftPick::clearLast();
+  ShaftPick::clearOverlay(m_scene);
   if (targetItem) {
     // 원래 설계대로 단일 클릭은 누적 다중 선택 + 토글 방식:
     // 선택 안 된 객체를 클릭하면 기존 선택에 추가, 이미 선택된 객체를
@@ -111,6 +134,11 @@ void SelectTool::mousePress(QPointF pos, Qt::MouseButton button) {
     // 가로채던 문제는 위 그립 판정(altCad != gripOwner 이면 도형 선택 우선)
     // 에서 처리하므로 여기서 이전 선택을 지울 필요가 없다.
     toggleSelection(targetItem);
+    if (isShaft && targetItem->isSelected()) {
+      ShaftPick::showOverlay(m_scene, shaftPick);
+      if (ctx && ctx->commandDock())
+        ctx->commandDock()->logMessage(shaftPick.commandLine, CommandDock::Info);
+    }
   } else {
     // AutoCAD처럼 박스(Window/Crossing) 선택은 기존 선택에 추가한다.
     // 빈 곳 클릭으로 선택을 지우지 않으며, 전체 해제는 Esc로 한다.
@@ -331,6 +359,8 @@ void SelectTool::keyPress(QKeyEvent *event) {
       cancelBoxSelection();
     } else {
       m_scene->clearSelection();
+      ShaftPick::clearLast();
+      ShaftPick::clearOverlay(m_scene);
     }
   } else if (event->key() == Qt::Key_Delete) {
     QList<CadItem *> topSelected =
@@ -338,10 +368,15 @@ void SelectTool::keyPress(QKeyEvent *event) {
     if (!topSelected.isEmpty()) {
       IAppContext *ctx = getContext();
       if (ctx && ctx->undoStack()) {
+        QList<QGraphicsItem *> gone;
+        for (auto item : std::as_const(topSelected))
+          gone << item;
+        const QSet<QString> touched = ProjectionView::viewIdsOf(gone);
         ctx->undoStack()->beginMacro("Delete Items");
         for (auto item : std::as_const(topSelected)) {
           ctx->undoStack()->push(new RemoveEntityCommand(m_scene, item));
         }
+        ProjectionView::syncAfterErase(ctx, m_scene, touched);   // 투상도·돌기·파내기 연동
         ctx->undoStack()->endMacro();
       } else {
         qDeleteAll(topSelected);

@@ -1,5 +1,32 @@
 #include "holepdialog.h"
+#include "holedialog.h"   // HoleInputCheck (구멍R 과 같은 입력 검사)
 #include "layermanager.h"
+
+#include <QMessageBox>
+
+void HolePDialog::accept() {
+    HoleInputCheck::Field field = HoleInputCheck::None;
+    const QString msg = HoleInputCheck::problem(resultData(), field);
+    if (!msg.isEmpty()) {
+        QMessageBox::warning(this, tr("구멍 설정"), msg);
+        // 고칠 칸으로 돌아가 값 전체를 선택해 바로 다시 입력할 수 있게
+        QDoubleSpinBox *target = nullptr;
+        switch (field) {
+        case HoleInputCheck::BaseDepth:   target = m_spnDepth; break;
+        case HoleInputCheck::ThreadDepth: target = m_spnThreadDepth; break;
+        case HoleInputCheck::CbDiameter:  target = m_spnCbDiameter; break;
+        case HoleInputCheck::CbDepth:     target = m_spnCbDepth; break;
+        case HoleInputCheck::CsDiameter:  target = m_spnCsDiameter; break;
+        default: break;
+        }
+        if (target) {
+            target->setFocus();
+            target->selectAll();
+        }
+        return;   // 창을 닫지 않음
+    }
+    QDialog::accept();
+}
 
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -249,8 +276,11 @@ void HolePDialog::updateThreadDepthConstraint() {
 
     double baseDepth = m_spnDepth->value();
     double maxThreadDepth = std::max(0.0, baseDepth - clearance);
-    m_spnThreadDepth->setMaximum(baseDepth > 0.0 ? maxThreadDepth : 1000.0);
-    if (enabled) m_spnThreadDepth->setValue(maxThreadDepth);
+    // 기본 구멍 깊이가 0(또는 여유보다 작음)이면 탭 깊이만으로 판다(드릴 깊이 = 탭 깊이 + 여유) →
+    // 탭 깊이를 제한하거나 0 으로 덮어쓰지 않는다
+    const bool baseGiven = maxThreadDepth > 0.0;
+    m_spnThreadDepth->setMaximum(baseGiven ? maxThreadDepth : 1000.0);
+    if (enabled && baseGiven) m_spnThreadDepth->setValue(maxThreadDepth);
 }
 
 void HolePDialog::onThreadSpecChanged(const QString &text) {

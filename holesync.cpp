@@ -8,6 +8,7 @@
 #include "layermanager.h"
 #include "lineitem.h"
 #include "linetypemanager.h"
+#include "mechpartdata.h"
 #include "mygraphicsscene.h"
 #include <QMessageBox>
 #include <QObject>
@@ -197,6 +198,9 @@ void HoleSync::confirmAndSyncSections(IAppContext *ctx, CadItem *ci, QWidget *pa
         double dirX = anchor->data(HOLE_SECTION_DIR_X).toDouble();
         double dirY = anchor->data(HOLE_SECTION_DIR_Y).toDouble();
         double thickness = anchor->data(HOLE_SECTION_MATERIAL_THICKNESS).toDouble();
+        // 투상도(측면도 구멍 연동)가 그린 단면이면 그 뷰 표시도 이어받는다.
+        //   빠지면 이 선이 하우징 단면의 경계로 잡혀 단면에 홈이 생기고, 3D 에서 끝면이 고리 모양으로 뚫린다.
+        const QVariant viewId = anchor->data(MECH_VIEW_ID);
 
         // 기존 단면 선 제거
         for (QGraphicsItem *old : instance) {
@@ -258,6 +262,8 @@ void HoleSync::confirmAndSyncSections(IAppContext *ctx, CadItem *ci, QWidget *pa
             newLine->setData(HOLE_SECTION_DIR_X, dirX);
             newLine->setData(HOLE_SECTION_DIR_Y, dirY);
             newLine->setData(HOLE_SECTION_MATERIAL_THICKNESS, thickness);
+            if (viewId.isValid() && !viewId.toString().isEmpty())
+                newLine->setData(MECH_VIEW_ID, viewId);
 
             if (layerRoot) newLine->setParentItem(layerRoot);
             if (newLine->scene() == scene) scene->removeItem(newLine);

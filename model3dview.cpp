@@ -127,6 +127,10 @@ void Model3DView::setModel(const Model3D &model, bool resetCamera)
     }
     m_center = QPointF((minX + maxX) / 2.0, (minY + maxY) / 2.0);
     m_baseZ = minZ;
+    // 기계 부품만 있으면(건축 벽 없음) 도면과 같은 방향으로 세운다 — 바닥에 눕지 않게
+    m_standUp = m_model.solids.isEmpty() && !m_model.meshes.isEmpty();
+    m_centerZ = (minZ + maxZ) / 2.0;
+    m_baseY = minY;
     const double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
     m_radius = std::max(10.0, 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz));
 
@@ -140,6 +144,11 @@ void Model3DView::setModel(const Model3D &model, bool resetCamera)
 
 QVector3D Model3DView::toLocal(double x, double y, double z) const
 {
+    if (m_standUp) {
+        // (X, Y, Z)도면 → (X, −Z, Y)보기 : 회전이라 면 방향(법선)이 그대로 유지됨
+        //   도면 Y 최솟값이 바닥(보기 Z = 0), 도면 Z 가운데가 앞뒤 중심
+        return QVector3D(float(x - m_center.x()), float(-(z - m_centerZ)), float(y - m_baseY));
+    }
     return QVector3D(float(x - m_center.x()), float(y - m_center.y()), float(z - m_baseZ));
 }
 

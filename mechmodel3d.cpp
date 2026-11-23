@@ -7,6 +7,8 @@
 #include "mechpartdata.h"
 #include "mechparttag.h"
 #include "extrudefeature.h"
+#include "holeitem.h"
+#include "plateview.h"
 #include "model3dmesh.h"
 #include "mygraphicsscene.h"
 #include "polylineitem.h"
@@ -119,6 +121,17 @@ QPolygonF slotPolygon(double xL, double xR, double yc, double rad, bool roundL, 
 
 // 볼록 다각형(반시계)을 z0~z1 로 세운 닫힌 기둥.
 //   윗면·아랫면은 꼭짓점 0 기준 부채꼴 분할 → 옆면과 꼭짓점이 정확히 맞아 닫힌(manifold) 입체가 된다.
+// 다각형 부호 넓이 (반시계 +)
+double signedArea(const QPolygonF &p)
+{
+    double a = 0.0;
+    for (int i = 0; i < p.size(); ++i) {
+        const QPointF &u = p.at(i), &v = p.at((i + 1) % p.size());
+        a += u.x() * v.y() - v.x() * u.y();
+    }
+    return a * 0.5;
+}
+
 void addPrism(QVector<QVector3D> &out, const QPolygonF &poly, double z0, double z1)
 {
     const QPointF o = poly.at(0);
@@ -234,47 +247,9 @@ void revolveOpen(QVector<QVector3D> &out, const std::vector<ProfilePt> &prof, co
 //   홈 중심이 x = a → b 로 나아간다 (부품 로컬). R = 바깥(호칭) 반지름.
 //   단면 (축 방향 u, 반지름 r): 바깥지름에서 폭 7P/8 (산마루 P/8 평탄), 깊이 0.6134P, 플랭크 30°, 골 폭 ≈ P/6.
 //   바깥지름 밖으로는 같은 폭(수직 벽)으로 0.25P 내밀어 이웃 바퀴와 겹치지 않게 한다 (불리언 안정).
-void addThreadCutter(QVector<QVector3D> &out, double a, double b, double R, double P, const Frame &f)
+// 로컬 삼각형을 부피 부호로 바깥 법선이 되게 맞춘 뒤 도면 좌표로 옮겨 담는다
+void appendOriented(QVector<QVector3D> &out, const QVector<QVector3D> &tris, const Frame &f)
 {
-    if (P <= kEps || R <= kEps || b <= a)
-        return;
-    const double t30 = std::tan(M_PI / 6.0);
-    const double hwR = 7.0 * P / 16.0;                  // 바깥지름에서 반폭
-    const double depth = std::min(0.6134 * P, R * 0.45);
-    const double ri = R - depth;
-    const double hwI = std::max(hwR - depth * t30, 0.02 * P);
-    const double ro = R + 0.25 * P;
-    // 단면 꼭짓점 (u, r) — 볼록 육각형
-    const double sec[6][2] = {{-hwR, ro}, {hwR, ro}, {hwR, R}, {hwI, ri}, {-hwI, ri}, {-hwR, R}};
-    const int nsec = 6;
-
-    const int perTurn = std::max(24, MechModel3D::radialSteps());
-    const int rings = std::max(2, int(std::ceil((b - a) / P * perTurn)) + 1);
-    std::vector<QVector3D> v(size_t(rings) * nsec);
-    for (int i = 0; i < rings; ++i) {
-        const double uc = a + (b - a) * double(i) / double(rings - 1);
-        const double th = 2.0 * M_PI * (uc - a) / P;
-        const double c = std::cos(th), s = std::sin(th);
-        for (int j = 0; j < nsec; ++j)
-            v[size_t(i) * nsec + j] = QVector3D(float(uc + sec[j][0]), float(sec[j][1] * c), float(sec[j][1] * s));
-    }
-    QVector<QVector3D> tris;
-    for (int i = 0; i + 1 < rings; ++i) {
-        for (int j = 0; j < nsec; ++j) {
-            const int jn = (j + 1) % nsec;
-            const QVector3D &A = v[size_t(i) * nsec + j], &B = v[size_t(i) * nsec + jn];
-            const QVector3D &C = v[size_t(i + 1) * nsec + jn], &D = v[size_t(i + 1) * nsec + j];
-            addTri(tris, A, B, C);
-            addTri(tris, A, C, D);
-        }
-    }
-    // 양 끝 마개 (볼록 단면 → 부채꼴 삼각형)
-    for (int j = 1; j + 1 < nsec; ++j) {
-        addTri(tris, v[0], v[size_t(j) + 1], v[size_t(j)]);
-        const size_t e = size_t(rings - 1) * nsec;
-        addTri(tris, v[e], v[e + j], v[e + j + 1]);
-    }
-    // 부피 부호로 방향 맞춤 (바깥 법선)
     double vol = 0.0;
     for (int i = 0; i + 2 < tris.size(); i += 3)
         vol += QVector3D::dotProduct(tris[i], QVector3D::crossProduct(tris[i + 1], tris[i + 2]));
@@ -286,6 +261,180 @@ void addThreadCutter(QVector<QVector3D> &out, double a, double b, double R, doub
         addTri(out, f.map(p0.x(), p0.y(), p0.z()), f.map(p1.x(), p1.y(), p1.z()), f.map(p2.x(), p2.y(), p2.z()));
     }
 }
+
+// 구멍·나사의 축 (부품 로컬): 점 = o + e1·t + e2·a + e3·b  (e1 = 축 방향, e2·e3 = 축에 수직인 정규직교)
+struct HoleAxis {
+    QVector3D o, e1, e2, e3;
+    QVector3D at(double t, double a, double b) const
+    {
+        return o + e1 * float(t) + e2 * float(a) + e3 * float(b);
+    }
+};
+
+HoleAxis makeAxis(const QVector3D &o, const QVector3D &dir)
+{
+    HoleAxis ax;
+    ax.o = o;
+    ax.e1 = dir.normalized();
+    const QVector3D ref = (std::fabs(ax.e1.x()) < 0.9f) ? QVector3D(1.0f, 0.0f, 0.0f) : QVector3D(0.0f, 1.0f, 0.0f);
+    ax.e2 = QVector3D::crossProduct(ax.e1, ref).normalized();
+    ax.e3 = QVector3D::crossProduct(ax.e1, ax.e2).normalized();
+    return ax;
+}
+
+// 볼록 단면 sec(u = 축 방향 오프셋, r = 반지름)을 축 ax 둘레 나선(피치 P)으로 t = a → b 쓸어 만든 닫힌 입체
+void addHelixSweepAxis(QVector<QVector3D> &out, double a, double b, double P, const std::vector<QPointF> &sec,
+                       const HoleAxis &ax, const Frame &f)
+{
+    const int nsec = int(sec.size());
+    if (P <= kEps || b <= a || nsec < 3)
+        return;
+    const int perTurn = std::max(24, MechModel3D::radialSteps());
+    const int rings = std::max(2, int(std::ceil((b - a) / P * perTurn)) + 1);
+    std::vector<QVector3D> v(size_t(rings) * nsec);
+    for (int i = 0; i < rings; ++i) {
+        const double uc = a + (b - a) * double(i) / double(rings - 1);
+        const double th = 2.0 * M_PI * (uc - a) / P;
+        const double c = std::cos(th), s = std::sin(th);
+        for (int j = 0; j < nsec; ++j)
+            v[size_t(i) * nsec + j] = ax.at(uc + sec[size_t(j)].x(), sec[size_t(j)].y() * c, sec[size_t(j)].y() * s);
+    }
+    QVector<QVector3D> tris;
+    for (int i = 0; i + 1 < rings; ++i) {
+        for (int j = 0; j < nsec; ++j) {
+            const int jn = (j + 1) % nsec;
+            const QVector3D &A = v[size_t(i) * nsec + j], &B = v[size_t(i) * nsec + jn];
+            const QVector3D &C = v[size_t(i + 1) * nsec + jn], &D = v[size_t(i + 1) * nsec + j];
+            addTri(tris, A, B, C);
+            addTri(tris, A, C, D);
+        }
+    }
+    for (int j = 1; j + 1 < nsec; ++j) {   // 양 끝 마개 (볼록 단면 → 부채꼴)
+        addTri(tris, v[0], v[size_t(j) + 1], v[size_t(j)]);
+        const size_t e = size_t(rings - 1) * nsec;
+        addTri(tris, v[e], v[e + j], v[e + j + 1]);
+    }
+    appendOriented(out, tris, f);
+}
+
+// x 축과 나란한 나선 (중심 (cy, cz), x = a → b)
+void addHelixSweep(QVector<QVector3D> &out, double a, double b, double P, const std::vector<QPointF> &sec,
+                   double cy, double cz, const Frame &f)
+{
+    addHelixSweepAxis(out, a, b, P, sec, makeAxis(QVector3D(0.0f, float(cy), float(cz)), QVector3D(1.0f, 0.0f, 0.0f)), f);
+}
+
+// 암나사(탭) 나사골 커터: 드릴 구멍(반지름 ri) 벽에서 호칭 반지름 R 까지 판 나선 홈. 축 ax 위 t = a → b.
+//   단면: 드릴 지름 쪽 폭 3P/4(암나사 산마루 P/4), 플랭크 30°, 호칭 지름 쪽 폭 ≈ P/8. 안쪽(빈 구멍)으로 0.25P 내밈.
+void addInternalThreadCutterAxis(QVector<QVector3D> &out, double a, double b, double ri, double R, double P,
+                                 const HoleAxis &ax, const Frame &f)
+{
+    if (P <= kEps || R <= ri + kEps)
+        return;
+    const double t30 = std::tan(M_PI / 6.0);
+    const double hwI = 3.0 * P / 8.0;                               // 드릴 지름에서 반폭
+    const double hwO = std::max(hwI - (R - ri) * t30, 0.03 * P);    // 호칭 지름에서 반폭
+    const double rin = std::max(0.0, ri - 0.25 * P);
+    const std::vector<QPointF> sec = {QPointF(-hwI, rin), QPointF(hwI, rin), QPointF(hwI, ri),
+                                      QPointF(hwO, R), QPointF(-hwO, R), QPointF(-hwI, ri)};
+    addHelixSweepAxis(out, a, b, P, sec, ax, f);
+}
+
+// x 축과 나란한 암나사 커터 (중심 (cy, cz), x = a → b)
+void addInternalThreadCutter(QVector<QVector3D> &out, double a, double b, double ri, double R, double P,
+                             double cy, double cz, const Frame &f)
+{
+    addInternalThreadCutterAxis(out, a, b, ri, R, P,
+                                makeAxis(QVector3D(0.0f, float(cy), float(cz)), QVector3D(1.0f, 0.0f, 0.0f)), f);
+}
+
+// (t, r) 닫힌 단면(축 위 점에서 시작·끝)을 구멍 축 ax 둘레로 돌린 입체 (t = 입구 ax.o 에서 ax.e1 쪽 깊이)
+void addHoleRevolveAxis(QVector<QVector3D> &out, const std::vector<QPointF> &prof, const HoleAxis &ax, const Frame &f)
+{
+    const int n = std::max(24, MechModel3D::radialSteps() / 2);
+    QVector<QVector3D> tris;
+    for (size_t i = 0; i < prof.size(); ++i) {
+        const QPointF a = prof[i], b = prof[(i + 1) % prof.size()];
+        if (a.y() < kEps && b.y() < kEps)
+            continue;
+        for (int k = 0; k < n; ++k) {
+            const double t0 = 2.0 * M_PI * double(k) / n, t1 = 2.0 * M_PI * double(k + 1) / n;
+            const QVector3D A = ax.at(a.x(), a.y() * std::cos(t0), a.y() * std::sin(t0));
+            const QVector3D B = ax.at(b.x(), b.y() * std::cos(t0), b.y() * std::sin(t0));
+            const QVector3D C = ax.at(b.x(), b.y() * std::cos(t1), b.y() * std::sin(t1));
+            const QVector3D D = ax.at(a.x(), a.y() * std::cos(t1), a.y() * std::sin(t1));
+            if (a.y() > kEps)
+                addTri(tris, A, D, C);
+            if (b.y() > kEps)
+                addTri(tris, A, C, B);
+        }
+    }
+    appendOriented(out, tris, f);
+}
+
+// x 축과 나란한 구멍: 입구 x = xe, 중심 (cy, cz), dir = ±1 (x = xe + dir·t)
+void addHoleRevolve(QVector<QVector3D> &out, const std::vector<QPointF> &prof, double xe, double dir,
+                    double cy, double cz, const Frame &f)
+{
+    addHoleRevolveAxis(out, prof, makeAxis(QVector3D(float(xe), float(cy), float(cz)), QVector3D(float(dir), 0.0f, 0.0f)), f);
+}
+
+// 구멍 하나의 3D 커터 모양 — 그리기 탭 "구멍 단면"(HoleSectionGenerator::buildLines)과 같은 규칙
+//   prof: (t = 입구에서 안쪽 깊이, r) 닫힌 단면. 축 위 (-over, 0) 에서 시작해 축 위에서 끝난다.
+//   · 카운터보어: 입구에서 cbDepth 까지 cbDiameter
+//   · 카운터싱크: (카운터보어 바닥 또는 입구에서) csDiameter → 드릴 지름, 반각 csAngle/2
+//   · 깊이: 관통 = 재료 두께 + 여유, 막힘 = depth(입구부터, 0 이면 지름), 막힌 탭 = 나사 깊이 + 드릴 여유(M12 이상 3, 미만 2)
+//   · 막힌 구멍 바닥: 드릴 끝 118°(반각 59°) 원뿔
+//   · 탭: 드릴 지름(=골 쪽) 커터 + 별도 나선 홈(threadStart~threadEnd, 호칭 반지름 majorR, 피치 pitch)
+struct HoleCutShape {
+    std::vector<QPointF> prof;
+    double drillR = 0.0;
+    double entryR = 0.0;      // 입구에서 보이는 가장 큰 반지름 (표시용)
+    double majorR = 0.0;
+    double pitch = 0.0;
+    double threadStart = 0.0;
+    double threadEnd = 0.0;
+};
+
+HoleCutShape holeCutShape(const MyHole &hole, double thickness)
+{
+    HoleCutShape s;
+    const double curR = hole.diameter * 0.5;
+    if (curR <= kEps)
+        return s;
+    s.drillR = curR;
+    double majorDia = 0.0, pitch = 0.0;
+    const bool specOk = MyHole::parseThreadSpec(hole.threadSpec, majorDia, pitch);
+    // 회전 단면 모양은 정면 해칭 빼기와 같은 함수 (HoleFeature::cutProfile) — 2D·3D 가 같은 모양
+    double cur = 0.0;            // 카운터보어·카운터싱크가 끝나는 깊이
+    s.prof = HoleFeature::cutProfile(hole, thickness, kCutterOver, &cur);
+    s.entryR = (s.prof.size() > 1) ? s.prof[1].y() : curR;
+    // 탭 나사 홈 범위
+    if (hole.isThreaded && specOk && pitch > kEps && majorDia * 0.5 > curR + kEps) {
+        s.majorR = majorDia * 0.5;
+        s.pitch = pitch;
+        s.threadStart = (cur > kEps) ? cur : -pitch;                       // 입구가 표면이면 밖에서부터
+        s.threadEnd = hole.throughHole ? thickness + pitch : cur + std::max(0.0, hole.threadDepth);
+    }
+    return s;
+}
+
+void addThreadCutter(QVector<QVector3D> &out, double a, double b, double R, double P, const Frame &f)
+{
+    if (P <= kEps || R <= kEps || b <= a)
+        return;
+    const double t30 = std::tan(M_PI / 6.0);
+    const double hwR = 7.0 * P / 16.0;                  // 바깥지름에서 반폭
+    const double depth = std::min(0.6134 * P, R * 0.45);
+    const double ri = R - depth;
+    const double hwI = std::max(hwR - depth * t30, 0.02 * P);
+    const double ro = R + 0.25 * P;
+    // 단면 꼭짓점 (u, r) — 볼록 육각형
+    const std::vector<QPointF> sec = {QPointF(-hwR, ro), QPointF(hwR, ro), QPointF(hwR, R),
+                                      QPointF(hwI, ri), QPointF(-hwI, ri), QPointF(-hwR, R)};
+    addHelixSweep(out, a, b, P, sec, 0.0, 0.0, f);
+}
+
 
 // 나사 구간 [x0, x1] (x1 쪽이 부품 끝면이면 endAtX1 = true) 의 나사골 커터 부품
 Model3DMeshPart threadCutterPart(const QString &partName, int no, double x0, double x1, bool endAtX1,
@@ -583,9 +732,92 @@ QList<Model3DMeshPart> MechModel3D::hexBoltParts(double dNom, double s, double k
     return parts;
 }
 
+namespace {
+// 탭 구멍의 나선 나사골 커터 하나를 list 에 추가 (구멍 커터와 겹치지 않게 별도 객체 "<이름>_나사커터N")
+void addHoleThreadPart(QList<Model3DMeshPart> &list, const QString &name, int &no, const HoleCutShape &cs,
+                       const HoleAxis &ax, const Frame &f)
+{
+    if (cs.threadEnd <= cs.threadStart + kEps || cs.pitch <= kEps)
+        return;
+    Model3DMeshPart tc;
+    tc.name = name + QStringLiteral("_나사커터") + (++no > 1 ? QString::number(no) : QString());
+    tc.type = QStringLiteral("Cutter");
+    tc.cutterFor = name;
+    Model3DMeshGroup tg;
+    tg.material = QStringLiteral("Cutter");
+    addInternalThreadCutterAxis(tg.tris, cs.threadStart, cs.threadEnd, cs.drillR, cs.majorR, cs.pitch, ax, f);
+    if (!tg.tris.isEmpty()) {
+        tc.groups << tg;
+        list << tc;
+    }
+}
+// 회전 부품(단면 회전체·축)의 구멍 커터 — Blender 에서 뺄 "<이름>_구멍커터" + 탭 "<이름>_나사커터N", 3D 보기용 입구 원판(mark)
+//   holes    = 측면도에 구멍R·구멍P 로 놓은 구멍 (축 방향, 원주 어디든)
+//   secHoles = 정면 단면 위에 "구멍 단면" 도구로 그린 구멍 (축 방향·반경 방향, 절단면 위)
+//   threadNo = 나사커터 번호 (부품에 이미 있는 나사커터 다음 번호부터)
+QList<Model3DMeshPart> holeCutters(const QString &name, const QList<RevolveLoop> &loops, const Frame &f,
+                                   const QList<HoleFeature> &holes, const QList<SectionHole> &secHoles,
+                                   Model3DMeshGroup &mark, int &threadNo)
+{
+    QList<Model3DMeshPart> out;
+    Model3DMeshPart cutter;
+    cutter.name = name + QStringLiteral("_구멍커터");
+    cutter.type = QStringLiteral("Cutter");
+    cutter.cutterFor = name;
+    Model3DMeshGroup cg;
+    cg.material = QStringLiteral("Cutter");
+    QList<Model3DMeshPart> threadCutters;
+
+    // 측면도 구멍: 입구 = 그린 쪽 끝면, 안쪽 방향으로 t 증가
+    for (int h = 0; h < holes.size(); ++h) {
+        const HoleFeature &hf = holes.at(h);
+        double lo = 0.0, hi = 0.0;
+        if (!hf.materialRange(loops, lo, hi))
+            continue;
+        const HoleCutShape cs = holeCutShape(hf.hole, hi - lo);
+        if (cs.prof.size() < 3)
+            continue;
+        const double xe = hf.leftSide ? lo : hi;
+        const double dir = hf.leftSide ? 1.0 : -1.0;
+        const HoleAxis ax = makeAxis(QVector3D(float(xe), float(hf.y), float(hf.z)), QVector3D(float(dir), 0.0f, 0.0f));
+        addHoleRevolveAxis(cg.tris, cs.prof, ax, f);
+        addHoleThreadPart(threadCutters, name, threadNo, cs, ax, f);
+        // 3D 보기용 입구 표시 (보기 창은 커터를 빼지 않으므로 원판으로 위치만 보여 준다)
+        addDiscX(mark.tris, xe - dir * 0.02, hf.y, hf.z, cs.entryR, !hf.leftSide, f);
+        if (hf.throughHole())
+            addDiscX(mark.tris, (hf.leftSide ? hi : lo) + dir * 0.02, hf.y, hf.z, cs.drillR, hf.leftSide, f);
+    }
+
+    // 정면 단면 위 구멍 단면: 축 방향(절단면 위 그 자리) · 반경 방향(바깥 → 축). 부품 로컬 x = 축, y = 정면 위, z = 보는 쪽
+    for (int h = 0; h < secHoles.size(); ++h) {
+        const SectionHole &sh = secHoles.at(h);
+        const HoleCutShape cs = holeCutShape(sh.hole, sh.thickness);
+        if (cs.prof.size() < 3)
+            continue;
+        const QVector3D entry(float(sh.x), float(sh.s), 0.0f);
+        const QVector3D dir = sh.axial ? QVector3D(float(sh.dirSign), 0.0f, 0.0f)
+                                       : QVector3D(0.0f, float(sh.dirSign), 0.0f);
+        const HoleAxis ax = makeAxis(entry, dir);
+        addHoleRevolveAxis(cg.tris, cs.prof, ax, f);
+        addHoleThreadPart(threadCutters, name, threadNo, cs, ax, f);
+        if (sh.axial)
+            addDiscX(mark.tris, sh.x - sh.dirSign * 0.02, sh.s, 0.0, cs.entryR, sh.dirSign < 0.0, f);
+    }
+
+    if (!cg.tris.isEmpty()) {
+        cutter.groups << cg;
+        out << cutter;
+    }
+    out << threadCutters;
+    return out;
+}
+} // namespace
+
 // ─────────────────────────────────────────────────────────────────────────────
 QList<Model3DMeshPart> MechModel3D::shaftParts(const ShaftParams &params, const QPointF &origin,
-                                               const QString &name)
+                                               const QString &name, const QList<RevolveLoop> &loops,
+                                               const QList<HoleFeature> &holes,
+                                               const QList<SectionHole> &secHoles)
 {
     QList<Model3DMeshPart> parts;
     if (params.segments.isEmpty())
@@ -720,6 +952,14 @@ QList<Model3DMeshPart> MechModel3D::shaftParts(const ShaftParams &params, const 
             parts << threadCutterPart(name, ++threadNo, L - std::min(eff.rightThread.length, s.length), L, true,
                                       s.diameter * 0.5, P, f);
         }
+        // 구멍 (측면도 구멍R·구멍P + 정면 구멍 단면) — 단면 회전체와 같은 커터
+        if (!loops.isEmpty() && (!holes.isEmpty() || !secHoles.isEmpty())) {
+            Model3DMeshGroup holeMark;
+            holeMark.material = QStringLiteral("Keyway");
+            parts << holeCutters(name, loops, f, holes, secHoles, holeMark, threadNo);
+            if (!holeMark.tris.isEmpty())
+                body.groups << holeMark;
+        }
     }
     parts.prepend(body);
     return parts;
@@ -749,7 +989,9 @@ void appendRevolve(Model3D &model, MyGraphicsScene *scene, const QString &id, co
         name += QStringLiteral("(%1)").arg(n);
     model.meshes << MechModel3D::revolveParts(loops, a0, pr.value(QStringLiteral("angleDeg")).toDouble(), name,
                                               RevolveProfile::fitsFromJson(pr.value(QStringLiteral("Fits")).toString()),
-                                              ProjectionView::holesOf(scene, id));
+                                              ProjectionView::holesOf(scene, id),
+                                              ProjectionView::sectionHolesOf(scene, id, loops, a0,
+                                                                             pr.value(QStringLiteral("angleDeg")).toDouble()));
 }
 } // namespace
 
@@ -793,7 +1035,18 @@ Model3D MechModel3D::build(MyGraphicsScene *scene)
         if (info.type == QLatin1String("MechShaft")) {
             const ShaftParams params = ShaftParams::fromJsonString(
                 info.props.value(QStringLiteral("Params")).toString(), ShaftParams::sample());
-            model.meshes << shaftParts(params, origin, name);
+            // 구멍: 측면도에 놓은 구멍R·구멍P, 정면 축 위에 그린 구멍 단면 (단면 회전체와 같은 방식)
+            QList<RevolveLoop> loops;
+            QPointF a0;
+            double ang = 0.0;
+            QString nm;
+            QList<HoleFeature> holes;
+            QList<SectionHole> secHoles;
+            if (revolveSection(scene, id, loops, a0, ang, nm)) {
+                holes = ProjectionView::holesOf(scene, id);
+                secHoles = ProjectionView::sectionHolesOf(scene, id, loops, a0, ang);
+            }
+            model.meshes << shaftParts(params, origin, name, loops, holes, secHoles);
         } else if (info.type == QLatin1String("MechDeepGrooveBearing")) {
             model.meshes << deepGrooveBearingParts(pr.value(QStringLiteral("d")).toDouble(),
                                                    pr.value(QStringLiteral("D")).toDouble(),
@@ -823,12 +1076,58 @@ Model3D MechModel3D::build(MyGraphicsScene *scene)
         }
     // 측면도 돌출: 합치기면 "<호스트>_합침N" (Blender 에서 호스트에 Union), 아니면 새 부품
     QHash<QString, int> mergeCount;
+    QHash<QString, int> cutCount;
+    QList<Model3DMeshPart> cutParts;               // 파내기 커터 — 합치기 뒤에 빼도록 맨 끝에 넣음
+    QHash<QString, Model3DMeshGroup> cutMarks;     // 호스트별 파낸 입구 표시 (3D 보기 창은 커터를 빼지 않음)
     for (QMap<QString, SymbolInfo>::const_iterator it = syms.constBegin(); it != syms.constEnd(); ++it) {
         if (it.value().type != QLatin1String("MechExtrude"))
             continue;
         ExtrudeInfo ei;
         if (!ExtrudeFeature::resolve(scene, it.key(), ei))
             continue;
+        if (ei.cut) {
+            if (!reg->hasSymbol(ei.host))
+                continue;
+            const QString hostName = reg->symbolInfo(ei.host).name;
+            const bool plate = ei.plateBoss || ei.plateFront;
+            // 커터는 열린 쪽(관통이면 양쪽)으로 조금 더 내밀어 불리언이 면에 걸리지 않게
+            ExtrudeInfo c = ei;
+            bool openLo = false, openHi = false;
+            if (plate) {
+                openHi = true;
+                openLo = ei.through;
+            } else if (ei.offset <= 1e-6) {
+                openLo = (ei.viewKind == ProjectionView::Left);
+                openHi = !openLo;
+            }
+            if (openLo)
+                c.x0 -= kCutterOver;
+            if (openHi)
+                c.x1 += kCutterOver;
+            Model3DMeshPart cp = extrudePart(c, hostName + QStringLiteral("_파내기") + QString::number(++cutCount[hostName]));
+            cp.type = QStringLiteral("Cutter");
+            cp.cutterFor = hostName;
+            cp.partId = ei.host;
+            for (int g = 0; g < cp.groups.size(); ++g)
+                cp.groups[g].material = QStringLiteral("Cutter");
+            cutParts << cp;
+            // 입구 표시: 열린 면에 얇은 판
+            const double opens[2] = {ei.x0, ei.x1};
+            const bool isOpen[2] = {openLo, openHi};
+            for (int o = 0; o < 2; ++o) {
+                if (!isOpen[o])
+                    continue;
+                ExtrudeInfo mk = ei;
+                mk.x0 = opens[o] - 0.03;
+                mk.x1 = opens[o] + 0.03;
+                const Model3DMeshPart mp = extrudePart(mk, QString());
+                Model3DMeshGroup &mg = cutMarks[ei.host];
+                mg.material = QStringLiteral("Keyway");
+                for (int g = 0; g < mp.groups.size(); ++g)
+                    mg.tris += mp.groups.at(g).tris;
+            }
+            continue;
+        }
         QString pname;
         if (ei.merge && reg->hasSymbol(ei.host)) {
             const QString hostName = reg->symbolInfo(ei.host).name;
@@ -839,10 +1138,49 @@ Model3D MechModel3D::build(MyGraphicsScene *scene)
             if (n > 1)
                 pname += QStringLiteral("(%1)").arg(n);
         }
-        Model3DMeshPart ep = extrudePart(ei, pname);
+        // 단독 돌출 본체는 바깥 고리만 (섬 = 관통 구멍은 구멍 커터로 빼서 닫힌 입체 유지)
+        ExtrudeInfo solid = ei;
+        if (ei.standalone) {
+            solid.rings.clear();
+            for (int r = 0; r < ei.rings.size(); ++r)
+                if (signedArea(ei.rings.at(r)) > 0.0)
+                    solid.rings << ei.rings.at(r);
+        }
+        Model3DMeshPart ep = extrudePart(solid, pname);
         ep.partId = (ei.merge && reg->hasSymbol(ei.host)) ? ei.host : it.key();   // 합침은 호스트를 따라감
+        QList<Model3DMeshPart> cutters;
+        if (ei.standalone) {
+            // 단독 돌출(판·블록): 공간 안의 구멍R·구멍P → Z 방향 구멍
+            Model3DMeshGroup mark;
+            mark.material = QStringLiteral("Keyway");
+            cutters = plateHoleCutters(scene, it.key(), ei, pname, mark);
+            if (!mark.tris.isEmpty())
+                ep.groups << mark;
+            for (int c = 0; c < cutters.size(); ++c)
+                cutters[c].partId = ep.partId;
+        } else if (!ei.plateBoss && !ei.plateFront) {
+            // 회전체에 붙은 돌출(받침대): 회전체 보조 투상도에 놓은 구멍 → 이 돌출 메시에서 뺌
+            //   (합침이면 "<호스트>_합침N_구멍커터" — Blender 에서 합침 객체에 먼저 빼고 호스트에 합친다)
+            Model3DMeshGroup mark;
+            mark.material = QStringLiteral("Keyway");
+            cutters = hostExtrudeHoleCutters(scene, it.key(), ei, pname, mark);
+            if (!mark.tris.isEmpty())
+                ep.groups << mark;
+            for (int c = 0; c < cutters.size(); ++c)
+                cutters[c].partId = ep.partId;
+        }
         model.meshes << ep;
+        model.meshes << cutters;
     }
+    // 파낸 입구 표시는 호스트 본체 메시에, 파내기 커터는 맨 끝에
+    for (QHash<QString, Model3DMeshGroup>::const_iterator mk = cutMarks.constBegin(); mk != cutMarks.constEnd(); ++mk)
+        for (int m = 0; m < model.meshes.size(); ++m)
+            if (model.meshes.at(m).partId == mk.key() && model.meshes.at(m).cutterFor.isEmpty() &&
+                !model.meshes.at(m).name.contains(QStringLiteral("_합침"))) {
+                model.meshes[m].groups << mk.value();
+                break;
+            }
+    model.meshes << cutParts;
     return model;
 }
 
@@ -963,7 +1301,8 @@ double MechModel3D::facetError(double radius, int steps)
 QList<Model3DMeshPart> MechModel3D::revolveParts(const QList<RevolveLoop> &loops, const QPointF &origin,
                                                  double angleDeg, const QString &name,
                                                  const QMap<QString, QString> &fits,
-                                                 const QList<HoleFeature> &holes)
+                                                 const QList<HoleFeature> &holes,
+                                                 const QList<SectionHole> &secHoles)
 {
     QList<Model3DMeshPart> parts;
     if (loops.isEmpty())
@@ -983,36 +1322,11 @@ QList<Model3DMeshPart> MechModel3D::revolveParts(const QList<RevolveLoop> &loops
     part.type = QStringLiteral("MechRevolve");
     part.groups << steel;
 
-    // 축 방향 구멍: Blender 에서 뺄 커터 + 3D 보기용 입구 원판
-    Model3DMeshPart cutter;
-    cutter.name = name + QStringLiteral("_구멍커터");
-    cutter.type = QStringLiteral("Cutter");
-    cutter.cutterFor = name;
-    Model3DMeshGroup cg, mark;
-    cg.material = QStringLiteral("Cutter");
+    // 구멍 (측면도 구멍R·구멍P + 정면 구멍 단면): Blender 커터 + 3D 보기용 입구 원판
+    Model3DMeshGroup mark;
     mark.material = QStringLiteral("Keyway");
-    for (int h = 0; h < holes.size(); ++h) {
-        const HoleFeature &hf = holes.at(h);
-        double x0 = 0.0, x1 = 0.0;
-        if (!hf.xRange(loops, x0, x1))
-            continue;
-        const bool through = hf.throughHole();
-        const bool openL = through || hf.leftSide, openR = through || !hf.leftSide;
-        const double r = hf.hole.diameter * 0.5;
-        addCylinderX(cg.tris, x0 - (openL ? kCutterOver : 0.0), x1 + (openR ? kCutterOver : 0.0), hf.y, hf.z, r, f);
-        // 카운터보어: 그린 쪽 입구에서 cbDepth 만큼 큰 원기둥
-        if (hf.hole.hasCounterbore && hf.hole.cbDiameter > hf.hole.diameter && hf.hole.cbDepth > 0.0) {
-            if (hf.leftSide)
-                addCylinderX(cg.tris, x0 - kCutterOver, x0 + hf.hole.cbDepth, hf.y, hf.z, hf.hole.cbDiameter * 0.5, f);
-            else
-                addCylinderX(cg.tris, x1 - hf.hole.cbDepth, x1 + kCutterOver, hf.y, hf.z, hf.hole.cbDiameter * 0.5, f);
-        }
-        const double rMark = (hf.hole.hasCounterbore && hf.hole.cbDiameter > hf.hole.diameter) ? hf.hole.cbDiameter * 0.5 : r;
-        if (openL)
-            addDiscX(mark.tris, x0 - 0.02, hf.y, hf.z, hf.leftSide ? rMark : r, false, f);
-        if (openR)
-            addDiscX(mark.tris, x1 + 0.02, hf.y, hf.z, hf.leftSide ? r : rMark, true, f);
-    }
+    int threadNo = 0;
+    const QList<Model3DMeshPart> cutters = holeCutters(name, loops, f, holes, secHoles, mark, threadNo);
     if (!mark.tris.isEmpty())
         part.groups << mark;
 
@@ -1036,10 +1350,7 @@ QList<Model3DMeshPart> MechModel3D::revolveParts(const QList<RevolveLoop> &loops
         part.fits << ft;
     }
     parts << part;
-    if (!cg.tris.isEmpty()) {
-        cutter.groups << cg;
-        parts << cutter;
-    }
+    parts << cutters;
     return parts;
 }
 
@@ -1184,6 +1495,33 @@ QVector<QPointF> earClip(const QPolygonF &ring)
 }
 } // namespace
 
+namespace {
+// 돌출 점: 호스트 돌출 = 호스트 축 x + 로컬 (y, z) / 단독 돌출 = 도면 (X, Y) + Z
+//   (x, a, b) → (a, b, x) 는 순환 치환이라 면 방향(바깥 법선)이 그대로 유지된다
+QVector3D extrudePoint(const ExtrudeInfo &info, const Frame &f, double x, double a, double b)
+{
+    if (info.standalone)
+        return QVector3D(float(a), float(b), float(x));
+    return f.map(x, a, b);
+}
+
+// 임의 축 구멍의 표시 원판: 축 위 t 위치, 반지름 r. outward = true 면 −e1 쪽(입구 바깥)을 향함
+void addDiscAxis(QVector<QVector3D> &out, const HoleAxis &ax, double t, double r, bool outward)
+{
+    const int n = std::max(24, MechModel3D::radialSteps() / 2);
+    const QVector3D c = ax.at(t, 0.0, 0.0);
+    for (int k = 0; k < n; ++k) {
+        const double t0 = 2.0 * M_PI * k / n, t1 = 2.0 * M_PI * (k + 1) / n;
+        const QVector3D p0 = ax.at(t, r * std::cos(t0), r * std::sin(t0));
+        const QVector3D p1 = ax.at(t, r * std::cos(t1), r * std::sin(t1));
+        if (outward)
+            addTri(out, c, p1, p0);   // e2→e3 반시계 = +e1 이므로 뒤집어 −e1
+        else
+            addTri(out, c, p0, p1);
+    }
+}
+} // namespace
+
 Model3DMeshPart MechModel3D::extrudePart(const ExtrudeInfo &info, const QString &partName)
 {
     Model3DMeshPart part;
@@ -1195,28 +1533,151 @@ Model3DMeshPart MechModel3D::extrudePart(const ExtrudeInfo &info, const QString 
     // 끝 뚜껑: (y, z) 반시계 삼각형 → x1 쪽은 +x 법선, x0 쪽은 뒤집음
     // 구멍 없는 단면은 귀 자르기(닫힌 입체), 구멍이 있으면 띠 분할
     QVector<QPointF> tri;
-    if (info.rings.size() == 1)
-        tri = earClip(info.rings.first());
+    // 바깥 고리만(구멍 없음)이면 고리마다 귀 자르기 — 꼭짓점이 옆면과 맞아 닫힌 입체
+    bool allOuter = true;
+    for (int r = 0; r < info.rings.size() && allOuter; ++r)
+        allOuter = signedArea(info.rings.at(r)) > 0.0;
+    if (allOuter) {
+        for (int r = 0; r < info.rings.size(); ++r) {
+            const QVector<QPointF> t = earClip(info.rings.at(r));
+            if (t.isEmpty()) {
+                tri.clear();
+                break;
+            }
+            tri += t;
+        }
+    }
     if (tri.isEmpty())
         tri = Model3DMesh::triangulate(info.rings);
     for (int i = 0; i + 2 < tri.size(); i += 3) {
         const QPointF &a = tri.at(i), &b = tri.at(i + 1), &c = tri.at(i + 2);
-        addTri(steel.tris, f.map(info.x1, a.x(), a.y()), f.map(info.x1, b.x(), b.y()), f.map(info.x1, c.x(), c.y()));
-        addTri(steel.tris, f.map(info.x0, a.x(), a.y()), f.map(info.x0, c.x(), c.y()), f.map(info.x0, b.x(), b.y()));
+        addTri(steel.tris, extrudePoint(info, f, info.x1, a.x(), a.y()), extrudePoint(info, f, info.x1, b.x(), b.y()),
+               extrudePoint(info, f, info.x1, c.x(), c.y()));
+        addTri(steel.tris, extrudePoint(info, f, info.x0, a.x(), a.y()), extrudePoint(info, f, info.x0, c.x(), c.y()),
+               extrudePoint(info, f, info.x0, b.x(), b.y()));
     }
     // 옆면: 반시계 고리의 변 a→b 는 (A0, B0, B1)(A0, B1, A1) 이 바깥 법선 (구멍 고리는 시계라 자동으로 안쪽)
     for (int r = 0; r < info.rings.size(); ++r) {
         const QPolygonF &p = info.rings.at(r);
         for (int k = 0; k < p.size(); ++k) {
             const QPointF a = p.at(k), b = p.at((k + 1) % p.size());
-            const QVector3D A0 = f.map(info.x0, a.x(), a.y()), B0 = f.map(info.x0, b.x(), b.y());
-            const QVector3D A1 = f.map(info.x1, a.x(), a.y()), B1 = f.map(info.x1, b.x(), b.y());
+            const QVector3D A0 = extrudePoint(info, f, info.x0, a.x(), a.y()), B0 = extrudePoint(info, f, info.x0, b.x(), b.y());
+            const QVector3D A1 = extrudePoint(info, f, info.x1, a.x(), a.y()), B1 = extrudePoint(info, f, info.x1, b.x(), b.y());
             addTri(steel.tris, A0, B0, B1);
             addTri(steel.tris, A0, B1, A1);
         }
     }
     part.groups << steel;
     return part;
+}
+
+QList<Model3DMeshPart> MechModel3D::plateHoleCutters(MyGraphicsScene *scene, const QString &uuid,
+                                                     const ExtrudeInfo &info, const QString &partName,
+                                                     Model3DMeshGroup &mark)
+{
+    QList<Model3DMeshPart> out;
+    if (!scene || !info.standalone || info.rings.isEmpty())
+        return out;
+    const Frame f = makeFrame(QPointF(0.0, 0.0), 0.0);   // 도면 좌표 그대로
+    Model3DMeshPart cutter;
+    cutter.name = partName + QStringLiteral("_구멍커터");
+    cutter.type = QStringLiteral("Cutter");
+    cutter.cutterFor = partName;
+    Model3DMeshGroup cg;
+    cg.material = QStringLiteral("Cutter");
+    QList<Model3DMeshPart> threads;
+    int threadNo = 0;
+    // 공간 안의 닫힌 모양(섬, 시계 고리) = 관통 구멍 → 판보다 조금 더 긴 기둥 커터 (판 본체는 바깥 고리만으로 만듦)
+    for (int r = 0; r < info.rings.size(); ++r) {
+        if (signedArea(info.rings.at(r)) >= 0.0)
+            continue;
+        ExtrudeInfo isl = info;
+        QPolygonF ring = info.rings.at(r);
+        std::reverse(ring.begin(), ring.end());          // 반시계로
+        isl.rings = QList<QPolygonF>{ring};
+        isl.x0 = info.x0 - kCutterOver;
+        isl.x1 = info.x1 + kCutterOver;
+        const Model3DMeshPart prism = extrudePart(isl, partName);
+        if (!prism.groups.isEmpty())
+            cg.tris += prism.groups.first().tris;
+        // 3D 보기 창은 커터를 빼지 않으므로 섬(관통 구멍) 자리 앞·뒷면에 얇은 표시판 (구멍 입구 원판과 같은 방식)
+        const double faces[2] = {info.x1, info.x0};
+        for (int k = 0; k < 2; ++k) {
+            ExtrudeInfo mk = isl;
+            mk.x0 = faces[k] - 0.03;
+            mk.x1 = faces[k] + 0.03;
+            const Model3DMeshPart mp = extrudePart(mk, partName);
+            for (int g = 0; g < mp.groups.size(); ++g)
+                mark.tris += mp.groups.at(g).tris;
+        }
+    }
+    // 구멍 = 정면·측면도·평면도에 놓은 구멍R·구멍P + 정면 구멍 단면(옆면 구멍) — 2D 투상도와 같은 목록
+    const QList<PlateHole> holes = PlateView::holes(scene, uuid);
+    for (int h = 0; h < holes.size(); ++h) {
+        const PlateHole &ph = holes.at(h);
+        const HoleCutShape cs = holeCutShape(ph.hole, ph.thickness);
+        if (cs.prof.size() < 3)
+            continue;
+        const HoleAxis ax = makeAxis(ph.entry, ph.dir);
+        addHoleRevolveAxis(cg.tris, cs.prof, ax, f);
+        addHoleThreadPart(threads, partName, threadNo, cs, ax, f);
+        // 3D 보기용 입구 표시 (보기 창은 커터를 빼지 않음) — 앞면·옆면·보조 투상도 면 구멍 모두, 관통이면 반대쪽도
+        addDiscAxis(mark.tris, ax, -0.02, cs.entryR, true);
+        if (ph.hole.throughHole)
+            addDiscAxis(mark.tris, ax, ph.thickness + 0.02, cs.drillR, false);
+    }
+    if (!cg.tris.isEmpty()) {
+        cutter.groups << cg;
+        out << cutter;
+    }
+    out << threads;
+    return out;
+}
+
+QList<Model3DMeshPart> MechModel3D::hostExtrudeHoleCutters(MyGraphicsScene *scene, const QString &extrudeUuid,
+                                                          const ExtrudeInfo &info, const QString &partName,
+                                                          Model3DMeshGroup &mark)
+{
+    QList<Model3DMeshPart> out;
+    if (!scene || info.standalone || info.host.isEmpty())
+        return out;
+    const QList<ProjectionView::AuxHole> holes = ProjectionView::auxHolesOf(scene, info.host);
+    // 돌출 로컬(호스트 축 좌표) → 도면·3D 좌표
+    const Frame f = makeFrame(info.a0, info.angleDeg);
+    Model3DMeshPart cutter;
+    cutter.name = partName + QStringLiteral("_구멍커터");
+    cutter.type = QStringLiteral("Cutter");
+    cutter.cutterFor = partName;
+    Model3DMeshGroup cg;
+    cg.material = QStringLiteral("Cutter");
+    QList<Model3DMeshPart> threads;
+    int threadNo = 0;
+    for (int h = 0; h < holes.size(); ++h) {
+        const ProjectionView::AuxHole &ah = holes.at(h);
+        if (ah.extrudeUuid != extrudeUuid)
+            continue;
+        const HoleCutShape cs = holeCutShape(ah.hole, ah.thickness);
+        if (cs.prof.size() < 3)
+            continue;
+        // 입구 = (x, y, z) 로컬, 방향 = (0, dy, dz)
+        const HoleAxis ax = makeAxis(QVector3D(float(ah.x), float(ah.entry.x()), float(ah.entry.y())),
+                                     QVector3D(0.0f, float(ah.dir.x()), float(ah.dir.y())));
+        addHoleRevolveAxis(cg.tris, cs.prof, ax, f);
+        addHoleThreadPart(threads, partName, threadNo, cs, ax, f);
+        // 3D 보기용 입구 표시 (보기 창은 커터를 빼지 않음) — 로컬에서 만들어 좌표 변환
+        QVector<QVector3D> disc;
+        addDiscAxis(disc, ax, -0.02, cs.entryR, true);
+        if (ah.hole.throughHole)
+            addDiscAxis(disc, ax, ah.thickness + 0.02, cs.drillR, false);
+        for (int k = 0; k < disc.size(); ++k)
+            mark.tris << f.map(disc.at(k).x(), disc.at(k).y(), disc.at(k).z());
+    }
+    if (!cg.tris.isEmpty()) {
+        cutter.groups << cg;
+        out << cutter;
+    }
+    out << threads;
+    return out;
 }
 
 QString MechModel3D::summaryText(const Model3D &model)

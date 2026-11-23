@@ -7,6 +7,7 @@
 #include <QPointF>
 #include <QPolygonF>
 #include <QString>
+#include <QStringList>
 
 class QGraphicsItem;
 class QUndoStack;
@@ -82,8 +83,15 @@ public:
     //   box = 경계 후보 객체를 고른 사각, picks = 공간 안쪽 점(비면 "복합모양" = 사각 안 전체 모양)
     //   저장해 두고 3D 를 만들 때마다 다시 찾는다 → 선을 고치면 3D 도 따라감 (못 찾으면 저장된 모양 사용)
     //   includeViewLines = 투상도로 생성된 선·원도 경계로 씀 (측면도에 그린 돌출 단면은 투상 원이 경계의 일부)
+    //   excludeHoleSections = 구멍 단면 선(HOLE_SECTION_GROUP_ID)도 경계에서 뺌 (해치 방식 부품의 선 영역용)
+    //   excludeHoles = 구멍R·구멍P 객체(HoleItem)도 경계에서 뺌 (단독 돌출: 구멍은 구멍 커터로 따로 판다)
+    //   excludeViewIds = 이 뷰 UUID(MECH_VIEW_ID)의 선은 경계에서 뺌 (판 정면에 그린 자기 숨은선이 공간을 쪼개지 않게)
     static QPainterPath areaRegion(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
-                                   bool includeViewLines = false);
+                                   bool includeViewLines = false, bool excludeHoleSections = false,
+                                   bool excludeHoles = false, const QStringList &excludeViewIds = QStringList());
+    // 해치 방식 부품의 단면 = 해칭이 덮고 있는 "선" 영역 (해칭 안쪽 점을 둘러싼 닫힌 공간).
+    //   해칭은 표시용이 되어 구멍 자리를 빼도 3D 단면은 그대로. 선으로 못 찾거나 해칭과 크게 다르면 해칭 모양 그대로.
+    static QPainterPath hatchLineRegion(MyGraphicsScene *scene, const QPainterPath &hatchPath);
     static QString registerRevolveArea(MyGraphicsScene *scene, QUndoStack *undo, const QRectF &box,
                                        const QList<QPointF> &picks, const QPainterPath &region, const QPointF &a0,
                                        const QPointF &a1, const QString &namePrefix,

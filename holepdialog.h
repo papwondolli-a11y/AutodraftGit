@@ -24,6 +24,10 @@ public:
     MyHole resultData() const;
     void setData(const MyHole &data);
 
+    // [확인]: 켜진 항목의 깊이·지름이 0 이면 오류 메시지를 띄우고 그 칸으로 돌아가 다시 입력받는다
+    //   (검사 규칙은 구멍R 과 같은 HoleInputCheck)
+    void accept() override;
+
     // 중심점(클릭한 점 또는 선택한 두 원/호의 중앙)으로부터의 거리. 0이면 중심에 그대로 배치.
     double centerDistance() const { return m_spnCenterDistance->value(); }
 

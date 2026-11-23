@@ -10,5 +10,7 @@ static constexpr int MECH_DATA_PART_ID = 240; // QString UUID
 static constexpr int MECH_VIEW_ID = 241;
 // 투상도에 그린 돌출(ExtrudeFeature) 선: 돌출 부품 UUID (깊이 이동에서 클릭으로 고르기)
 static constexpr int MECH_EXTRUDE_ID = 242;
+// 숨긴 투상도(3D 기계용 > 투상도 숨기기) 안에 있어 화면에서 숨긴 구멍(HoleItem) 표시 — bool (저장 안 함, 불러올 때 다시 계산)
+static constexpr int MECH_CONCEALED_HOLE = 243;
 
 #endif // MECHPARTDATA_H

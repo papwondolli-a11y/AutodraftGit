@@ -63,6 +63,8 @@ public slots:
 private:
     void updateDisplay();
     void showSymbolProperties(const SymbolInfo &info);
+    // [3D 기계용] 축: 마지막으로 클릭한 지점의 구간 + 구간 표
+    void showShaftProperties(const SymbolInfo &info, const QString &uuid);
     static QString formatSymbolType(const QString &type);
     void rebuildSymbol(MyGraphicsScene *scene, const QString &groupId,
                        const SymbolInfo &oldInfo, const SymbolInfo &newInfo);
@@ -85,6 +87,11 @@ private:
     // [신규] 켜져 있는 카운터보어/카운터싱크 지름을 구멍의 현재 탭 규격에 맞춰 갱신한다
     // (MyHole::suggestedCbDiameter/suggestedCsDiameter). cb/cs로 대상을 고른다.
     void syncHoleHeadDiameters(CadItem *ci, bool cb, bool cs);
+    // [구멍 입력 검사] 구멍 설정창과 같은 규칙(HoleInputCheck).
+    //   값 입력: key 를 value 로 바꾸면 구멍이 잘못되는가 → 문제 문구(빈 문자열이면 정상). 잘못되면 적용하지 않는다.
+    QString holeValueProblem(CadItem *ci, const QString &key, const QString &value) const;
+    //   켜기/관통→막힘 전환 뒤: 아직 0 인 값이 있으면 무엇을 입력해야 하는지 알린다
+    void warnIncompleteHoles();
 
     // [신규] 탭가공된 구멍의 기본(드릴)지름이 바뀔 때(텍스트 편집/스핀박스 공용) 호출.
     // 기존 규격의 피치는 유지한 채 호칭지름(=골지름선 위치)을 새 드릴지름 + 피치로 다시

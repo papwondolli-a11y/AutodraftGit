@@ -3,12 +3,18 @@
 #include "advancedboundaryfinder.h"
 #include "caditem.h"
 #include "hatchitem.h"
+#include "holedata.h"
+#include "holefeature.h"
+#include "holeitem.h"
 #include "mechpartdata.h"
 #include "mechparttag.h"
 #include "mygraphicsscene.h"
 #include "scenesymbolregistry.h"
 
 #include <QUndoStack>
+#include <QHash>
+#include <QPainterPathStroker>
+#include <QSet>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -456,8 +462,155 @@ QPainterPath regionFromJson(const QString &json)
 }
 } // namespace
 
+namespace {
+// 다각형 변까지 가장 가까운 거리
+double distToEdges(const QPointF &p, const QList<QPolygonF> &polys)
+{
+    double best = 1e300;
+    for (int i = 0; i < polys.size(); ++i) {
+        const QPolygonF &pg = polys.at(i);
+        for (int k = 0; k + 1 < pg.size(); ++k) {
+            const QPointF a = pg.at(k), b = pg.at(k + 1);
+            const QPointF ab = b - a;
+            const double L2 = ab.x() * ab.x() + ab.y() * ab.y();
+            double t = L2 > 1e-18 ? ((p.x() - a.x()) * ab.x() + (p.y() - a.y()) * ab.y()) / L2 : 0.0;
+            t = std::clamp(t, 0.0, 1.0);
+            const QPointF q = a + ab * t;
+            best = std::min(best, std::hypot(p.x() - q.x(), p.y() - q.y()));
+        }
+    }
+    return best;
+}
+} // namespace
+
+namespace {
+// 경계 사각 안에 그려진 구멍 단면들이 차지하는 자리 (구멍 단면 선의 태그 → 원본 구멍 스펙으로 다시 계산)
+//   해치 방식 부품은 투상도를 만들 때 해칭에서 구멍 자리를 뺀다. 선 영역을 못 찾아 해칭 모양으로 대신할 때
+//   이 자리를 다시 채우지 않으면 단면에 구멍 홈이 생겨, 회전체 3D·측면도에 구멍끼리 잇는 고리(원)가 생긴다.
+QPainterPath holeSectionArea(MyGraphicsScene *scene, const QRectF &box)
+{
+    QPainterPath area;
+    // 원본 구멍 스펙 (HOLE_DATA_GROUP_ID → HoleItem)
+    QHash<QString, MyHole> specs;
+    const QList<QGraphicsItem *> all = scene->items();
+    for (int i = 0; i < all.size(); ++i) {
+        const HoleItem *hi = dynamic_cast<const HoleItem *>(all.at(i));
+        if (!hi)
+            continue;
+        const QString gid = hi->data(HOLE_DATA_GROUP_ID).toString();
+        if (!gid.isEmpty() && !specs.contains(gid))
+            specs.insert(gid, hi->holeData());
+    }
+    QSet<QString> seen;
+    const QList<QGraphicsItem *> items = scene->items(box, Qt::IntersectsItemShape);
+    for (int i = 0; i < items.size(); ++i) {
+        const QGraphicsItem *gi = items.at(i);
+        const QString gid = gi->data(HOLE_SECTION_GROUP_ID).toString();
+        if (gid.isEmpty() || !specs.contains(gid))
+            continue;
+        const QPointF top(gi->data(HOLE_SECTION_TOP_X).toDouble(), gi->data(HOLE_SECTION_TOP_Y).toDouble());
+        QPointF dir(gi->data(HOLE_SECTION_DIR_X).toDouble(), gi->data(HOLE_SECTION_DIR_Y).toDouble());
+        const double dl = std::hypot(dir.x(), dir.y());
+        if (dl < 1e-9)
+            continue;
+        dir /= dl;
+        // 한 구멍 단면 = 같은 원본·입구·방향의 선 여러 개 → 한 번만
+        const QString key = QStringLiteral("%1|%2|%3|%4|%5").arg(gid).arg(top.x(), 0, 'f', 4).arg(top.y(), 0, 'f', 4)
+                                .arg(dir.x(), 0, 'f', 4).arg(dir.y(), 0, 'f', 4);
+        if (seen.contains(key))
+            continue;
+        seen.insert(key);
+        HoleFeature tmp;
+        tmp.hole = specs.value(gid);
+        const QPainterPath p = tmp.frontArea(top, dir, gi->data(HOLE_SECTION_MATERIAL_THICKNESS).toDouble());
+        if (!p.isEmpty())
+            area = area.isEmpty() ? p : area.united(p);
+    }
+    return area;
+}
+
+// 구멍 자리 p 가 해칭에 닿는가 (해칭에서 뺀 자리면 경계가 딱 맞닿음 → 살짝 넓혀서 판정)
+bool touchesHatch(const QPainterPath &hatchPath, const QPainterPath &p)
+{
+    QPainterPathStroker st;
+    st.setWidth(0.2);
+    return hatchPath.intersects(p.united(st.createStroke(p)));
+}
+
+// 선 영역 대신 해칭 모양을 쓸 때: 해칭에서 뺀 구멍 자리를 다시 채운 모양
+QPainterPath hatchWithHoles(MyGraphicsScene *scene, const QPainterPath &hatchPath)
+{
+    const QRectF hb = hatchPath.boundingRect();
+    const QPainterPath holes = holeSectionArea(scene, hb);
+    if (holes.isEmpty())
+        return hatchPath;
+    // 해칭에 닿는 구멍 자리만 (다른 부품의 구멍은 제외), 해칭 경계 사각 안으로 자름
+    QPainterPath fill;
+    const QList<QPolygonF> hp = holes.toFillPolygons();
+    for (int i = 0; i < hp.size(); ++i) {
+        QPainterPath one;
+        one.addPolygon(hp.at(i));
+        if (touchesHatch(hatchPath, one))
+            fill = fill.isEmpty() ? one : fill.united(one);
+    }
+    if (fill.isEmpty())
+        return hatchPath;
+    QPainterPath clip;
+    clip.addRect(hb);
+    QPainterPath out = hatchPath.united(fill.intersected(clip));
+    out.setFillRule(Qt::OddEvenFill);
+    return out;
+}
+} // namespace
+
+QPainterPath RevolveProfile::hatchLineRegion(MyGraphicsScene *scene, const QPainterPath &hatchPath)
+{
+    if (!scene || hatchPath.isEmpty())
+        return hatchPath;
+    const QRectF hb = hatchPath.boundingRect();
+    const QList<QPolygonF> polys = hatchPath.toFillPolygons();
+    // 해칭 조각마다 안쪽 점 하나 (변에서 가장 먼 격자점 — 경계 찾기가 안정)
+    QList<QPointF> picks;
+    for (int i = 0; i < polys.size(); ++i) {
+        const QRectF pb = polys.at(i).boundingRect();
+        if (pb.width() < 1e-6 || pb.height() < 1e-6)
+            continue;
+        const int N = 24;
+        QPointF bestPt;
+        double bestD = -1.0;
+        for (int a = 1; a < N; ++a) {
+            for (int b = 1; b < N; ++b) {
+                const QPointF q(pb.left() + pb.width() * a / N, pb.top() + pb.height() * b / N);
+                if (!polys.at(i).containsPoint(q, Qt::OddEvenFill) || !hatchPath.contains(q))
+                    continue;                                   // 해칭 안쪽만 (구멍·섬 제외)
+                const double d = distToEdges(q, polys);
+                if (d > bestD) {
+                    bestD = d;
+                    bestPt = q;
+                }
+            }
+        }
+        if (bestD > 0.0)
+            picks << bestPt;
+    }
+    if (picks.isEmpty())
+        return hatchWithHoles(scene, hatchPath);
+    QPainterPath region = areaRegion(scene, hb, picks, false, true);
+    if (region.isEmpty())
+        return hatchWithHoles(scene, hatchPath);
+    // 선 영역이 해칭과 같은 자리인지 (경계 사각이 거의 같아야 함 — 구멍을 빼도 바깥 경계는 그대로)
+    const QRectF rb = region.boundingRect();
+    const double tol = std::max(0.5, 0.01 * std::hypot(hb.width(), hb.height()));
+    if (std::fabs(rb.left() - hb.left()) > tol || std::fabs(rb.right() - hb.right()) > tol ||
+        std::fabs(rb.top() - hb.top()) > tol || std::fabs(rb.bottom() - hb.bottom()) > tol)
+        return hatchWithHoles(scene, hatchPath);
+    region.setFillRule(Qt::OddEvenFill);
+    return region;
+}
+
 QPainterPath RevolveProfile::areaRegion(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
-                                        bool includeViewLines)
+                                        bool includeViewLines, bool excludeHoleSections, bool excludeHoles,
+                                        const QStringList &excludeViewIds)
 {
     QPainterPath out;
     if (!scene || box.isEmpty())
@@ -473,7 +626,13 @@ QPainterPath RevolveProfile::areaRegion(MyGraphicsScene *scene, const QRectF &bo
         CadItem *ci = dynamic_cast<CadItem *>(gi.at(i));
         if (!ci || dynamic_cast<HatchItem *>(ci) || !ci->isVisible())
             continue;
-        if (!includeViewLines && !ci->data(MECH_VIEW_ID).toString().isEmpty())
+        const QString vid = ci->data(MECH_VIEW_ID).toString();
+        if (!vid.isEmpty() && (!includeViewLines || excludeViewIds.contains(vid)))
+            continue;
+        if (excludeHoleSections && !ci->data(HOLE_SECTION_GROUP_ID).toString().isEmpty())
+            continue;
+        // 구멍 객체와 그 중심선(같은 HOLE_DATA_GROUP_ID 의 독립 선) — 판을 가로질러 공간을 쪼개지 않게
+        if (excludeHoles && (dynamic_cast<HoleItem *>(ci) || !ci->data(HOLE_DATA_GROUP_ID).toString().isEmpty()))
             continue;
         items.append(ci);
     }
@@ -497,8 +656,14 @@ bool RevolveProfile::partPaths(MyGraphicsScene *scene, const QString &uuid, QLis
     if (!scene || !scene->symbolRegistry()->hasSymbol(uuid))
         return false;
     const SymbolInfo info = scene->symbolRegistry()->symbolInfo(uuid);
-    if (info.props.value(QStringLiteral("Source")).toString() != QLatin1String("area"))
-        return taggedHatches(scene, uuid, paths, ref);
+    if (info.props.value(QStringLiteral("Source")).toString() != QLatin1String("area")) {
+        // 해치 방식: 해칭은 위치(기준점)만, 단면은 해칭이 덮는 선 영역 → 해칭에서 구멍 자리를 빼도 3D 단면은 그대로
+        if (!taggedHatches(scene, uuid, paths, ref))
+            return false;
+        for (int i = 0; i < paths.size(); ++i)
+            paths[i] = hatchLineRegion(scene, paths.at(i));
+        return true;
+    }
 
     const QMap<QString, QVariant> &pr = info.props;
     const QJsonArray b = QJsonDocument::fromJson(pr.value(QStringLiteral("Box")).toString().toUtf8()).array();
@@ -507,7 +672,9 @@ bool RevolveProfile::partPaths(MyGraphicsScene *scene, const QString &uuid, QLis
     const QJsonArray pj = QJsonDocument::fromJson(pr.value(QStringLiteral("Picks")).toString().toUtf8()).array();
     for (int i = 0; i < pj.size(); ++i)
         picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
-    QPainterPath region = areaRegion(scene, box, picks);
+    // 구멍 단면 선(측면도 구멍 연동·구멍 단면 도구)은 경계가 아님 — 구멍은 커터로 따로 판다.
+    //   경계로 잡히면 단면에 홈이 생기고, 회전하면 끝면이 고리 모양으로 뚫린다 (해치 방식 hatchLineRegion 과 같은 규칙)
+    QPainterPath region = areaRegion(scene, box, picks, false, true);
     if (region.isEmpty())
         region = regionFromJson(pr.value(QStringLiteral("Region")).toString());   // 못 찾으면 등록 때 모양
     if (region.isEmpty())

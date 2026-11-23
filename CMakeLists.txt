@@ -245,6 +245,11 @@ set(SOURCES
     revolveprofile.cpp
     revolvebodydialog.cpp
     revolvebodytool.cpp
+    isodrawing.cpp
+    isodrawtool.cpp
+    shaftpick.cpp
+    bearinginserttool.cpp
+    plateview.cpp
     projectionview.cpp
     projectionviewtool.cpp
     extrudefeature.cpp
@@ -570,6 +575,11 @@ set(HEADERS
     revolveprofile.h
     revolvebodydialog.h
     revolvebodytool.h
+    isodrawing.h
+    isodrawtool.h
+    shaftpick.h
+    bearinginserttool.h
+    plateview.h
     projectionview.h
     projectionviewtool.h
     extrudefeature.h

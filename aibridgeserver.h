@@ -78,7 +78,10 @@ private:
   QJsonObject toolCreateShaft(const QJsonObject &args);     // 기계 Tools 축 (설정창 없이)
   QJsonObject toolCreateBearing(const QJsonObject &args);
   QJsonObject toolCreateRevolve(const QJsonObject &args);
-  QJsonObject toolCreateProjection(const QJsonObject &args);   // 3D 데이터로 좌·우측면도·평면도
+  QJsonObject toolCreateProjection(const QJsonObject &args);
+  QJsonObject toolDrawIsometric(const QJsonObject &args);
+  QJsonObject toolShaftInfo(const QJsonObject &args);
+  QJsonObject toolInsertBearing(const QJsonObject &args);      // 축 구간에 베어링 넣기          // 축 위 한 점의 구간 정보 (선택 클릭과 같은 계산·표시)      // 부품을 등각도·3D 창 방향 선으로   // 3D 데이터로 좌·우측면도·평면도
   QJsonObject toolRegenProjections(const QJsonObject &args);   // 투상도 다시 그리기
   QJsonObject toolCreateExtrude(const QJsonObject &args);      // 측면도 공간 → 축 방향 돌출
   QJsonObject toolDepthMove(const QJsonObject &args);          // 기준면에서 깊이만큼 축 방향 이동   // 해칭 단면 + 회전축 → 3D 기계용 회전체   // 기계 Tools 깊은 홈 볼베어링 (설정창 없이)

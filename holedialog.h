@@ -15,6 +15,15 @@
 
 class LayerManager;
 
+// 구멍 설정창 [확인] 시 입력 검사 (구멍R HoleDialog · 구멍P HolePDialog 공용)
+//   켜져 있는 항목의 깊이(DP)·지름이 0 이거나 맞지 않으면 문제 문구와 고칠 칸(field)을 돌려준다.
+class HoleInputCheck {
+public:
+    enum Field { None = 0, BaseDepth, ThreadDepth, CbDiameter, CbDepth, CsDiameter };
+    // 문제가 없으면 빈 문자열
+    static QString problem(const MyHole &hole, Field &field);
+};
+
 // 구멍(드릴/탭/카운터보어/카운터싱크) 스펙 입력 다이얼로그
 class HoleDialog : public QDialog {
     Q_OBJECT
@@ -23,6 +32,9 @@ public:
 
     MyHole resultData() const;
     void setData(const MyHole &data);
+
+    // [확인]: 켜진 항목의 깊이·지름이 0 이면 오류 메시지를 띄우고 그 칸으로 돌아가 다시 입력받는다
+    void accept() override;
 
     // 코너(두 기준선 교차점) 기준 배치용 오프셋. 0,0이면 일반 클릭 배치.
     double offsetX() const { return m_spnOffsetX->value(); }

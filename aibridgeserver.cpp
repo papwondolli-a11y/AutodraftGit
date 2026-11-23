@@ -1,5 +1,9 @@
 #include "revolveprofile.h"
 #include <QUuid>
+#include "isodrawtool.h"
+#include "plateview.h"
+#include "shaftpick.h"
+#include "bearinginserttool.h"
 #include "projectionview.h"
 #include "extrudefeature.h"
 #include "depthmovetool.h"
@@ -371,6 +375,12 @@ QJsonObject AiBridgeServer::dispatchTool(const QJsonObject &req) {
     return toolCreateRevolve(args);
   if (tool == QLatin1String("create_projection"))
     return toolCreateProjection(args);
+  if (tool == QLatin1String("draw_isometric"))
+    return toolDrawIsometric(args);
+  if (tool == QLatin1String("shaft_info"))
+    return toolShaftInfo(args);
+  if (tool == QLatin1String("insert_bearing"))
+    return toolInsertBearing(args);
   if (tool == QLatin1String("regen_projections"))
     return toolRegenProjections(args);
   if (tool == QLatin1String("create_extrude"))
@@ -4287,9 +4297,11 @@ QJsonObject AiBridgeServer::toolDeleteGroup(const QJsonObject &args) {
     return fail(QStringLiteral("이름표가 '%1' 인 객체가 없습니다. get_plan 으로 그룹 목록을 "
                                "확인하세요.")
                     .arg(group));
+  const QSet<QString> touched = ProjectionView::viewIdsOf(collectGroupItems(scene, group));
   if (m_ctx->undoStack())
     m_ctx->undoStack()->beginMacro(QStringLiteral("AI: delete_group %1").arg(group));
   const int removed = removeGroupItems(scene, group);
+  ProjectionView::syncAfterErase(m_ctx, scene, touched);   // 투상도·돌기·파내기 연동
   if (m_ctx->undoStack())
     m_ctx->undoStack()->endMacro();
   QJsonObject result;
@@ -5880,6 +5892,104 @@ QJsonObject AiBridgeServer::toolCreateRevolve(const QJsonObject &args) {
 // ─────────────────────────────────────────────────────────────────────────────
 // [3D 기계용] 투상도: part = 부품 이름(예 "하우징-1"), kind = left|right|top, at = 놓을 점
 // ─────────────────────────────────────────────────────────────────────────────
+// 베어링 넣기: at = 축 구간 위 점(붙일 턱 쪽 끝 가까이), type = deepgroove|tapered, name(생략 = 첫 "맞음"), k5, dims
+QJsonObject AiBridgeServer::toolInsertBearing(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at = 축 구간 위 점 [x, y] 가 필요합니다."));
+  BearingInsertPlan pl;
+  if (!BearingInsertTool::planAt(scene, at, 2.0, pl))
+    return fail(QStringLiteral("그 점 근처에 축 외형이 없습니다."));
+  const bool tapered = args.value(QStringLiteral("type")).toString() == QLatin1String("tapered");
+  const QList<BearingFitCheck> cands = BearingInsertTool::candidates(pl, tapered);
+  QJsonArray list;
+  QString name = args.value(QStringLiteral("name")).toString();
+  for (int i = 0; i < cands.size(); ++i) {
+    list.append(QStringLiteral("%1 %2×%3×%4 %5").arg(cands.at(i).name).arg(cands.at(i).d).arg(cands.at(i).D)
+                    .arg(cands.at(i).W).arg(cands.at(i).note));
+    if (name.isEmpty() && cands.at(i).ok)
+      name = cands.at(i).name;
+  }
+  if (name.isEmpty() && !cands.isEmpty())
+    name = cands.first().name;
+  if (name.isEmpty())
+    return fail(QStringLiteral("안지름이 맞는 규격이 없습니다."));
+  double centerX = qQNaN();
+  if (args.contains(QStringLiteral("distance")))
+    centerX = BearingInsertTool::centerFor(pl, BearingInsertTool::widthOf(tapered, name),
+                                           args.value(QStringLiteral("from")).toString() != QLatin1String("end"),
+                                           args.value(QStringLiteral("distance")).toDouble());
+  const QString placed = BearingInsertTool::insert(m_ctx, scene, pl, tapered, name,
+                                                   args.value(QStringLiteral("k5")).toBool(false), centerX);
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), !placed.isEmpty());
+  result.insert(QStringLiteral("placed"), placed);
+  result.insert(QStringLiteral("segment"), pl.pick.seg + 1);
+  result.insert(QStringLiteral("side"), pl.leftSide ? QStringLiteral("left") : QStringLiteral("right"));
+  result.insert(QStringLiteral("shoulderD"), pl.shoulderD);
+  result.insert(QStringLiteral("candidates"), list);
+  return result;
+}
+
+// 축 위 한 점(at)의 구간: 그 점 근처의 축 외형 → ShaftPick (도면 강조·말풍선도 표시)
+QJsonObject AiBridgeServer::toolShaftInfo(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at = 축 위의 점 [x, y] 가 필요합니다."));
+  const QList<QGraphicsItem *> near = scene->items(QRectF(at.x() - 2.0, at.y() - 2.0, 4.0, 4.0));
+  ShaftPickInfo info;
+  for (int i = 0; i < near.size() && !info.ok; ++i)
+    ShaftPick::pick(scene, near.at(i), at, info);
+  if (!info.ok)
+    return fail(QStringLiteral("그 점 근처에 축 외형이 없습니다."));
+  ShaftPick::setLast(info);
+  ShaftPick::showOverlay(scene, info);
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("part"), info.name);
+  result.insert(QStringLiteral("segment"), info.seg + 1);
+  result.insert(QStringLiteral("headline"), info.headline);
+  result.insert(QStringLiteral("details"), QJsonArray::fromStringList(info.details));
+  result.insert(QStringLiteral("line"), info.commandLine);
+  return result;
+}
+
+// 등각도 그리기: at = 그림 가운데, view = "iso"(KS 등각도) | "window"(3D 창 현재 화면), hidden, visibleOnly
+QJsonObject AiBridgeServer::toolDrawIsometric(const QJsonObject &args) {
+  QJsonObject err;
+  MyGraphicsScene *scene = requireScene(err);
+  if (!scene)
+    return err;
+  QPointF at;
+  if (!readPoint(args.value(QStringLiteral("at")), at))
+    return fail(QStringLiteral("at = 놓을 점(그림 가운데) [x, y] 가 필요합니다."));
+  const bool viewMode = args.value(QStringLiteral("view")).toString(QStringLiteral("iso")) == QLatin1String("window");
+  ProjDrawing d;
+  QString error;
+  if (!IsoDrawTool::compute(m_ctx, scene, viewMode, args.value(QStringLiteral("visibleOnly")).toBool(false),
+                            args.value(QStringLiteral("hidden")).toBool(false), d, &error))
+    return fail(error);
+  const int n = IsoDrawTool::place(m_ctx, scene, d, at);
+  QRectF box;
+  for (int i = 0; i < d.visible.size(); ++i)
+    box = box.united(QRectF(d.visible.at(i).p1(), d.visible.at(i).p2()).normalized().translated(at));
+  QJsonObject result;
+  result.insert(QStringLiteral("ok"), true);
+  result.insert(QStringLiteral("visibleLines"), d.visible.size());
+  result.insert(QStringLiteral("hiddenLines"), d.hidden.size());
+  result.insert(QStringLiteral("added"), n);
+  result.insert(QStringLiteral("bbox"), QJsonArray{box.x(), box.y(), box.width(), box.height()});
+  return result;
+}
+
 QJsonObject AiBridgeServer::toolCreateProjection(const QJsonObject &args) {
   QJsonObject err;
   MyGraphicsScene *scene = requireScene(err);
@@ -5899,18 +6009,34 @@ QJsonObject AiBridgeServer::toolCreateProjection(const QJsonObject &args) {
   if (uuid.isEmpty())
     return fail(QStringLiteral("부품 '%1' 이 없습니다. 있는 부품: %2").arg(partName, names.join(QStringLiteral(", "))));
   const QString kindStr = args.value(QStringLiteral("kind")).toString(QStringLiteral("left"));
-  const int kind = kindStr == QLatin1String("right") ? ProjectionView::Right
-                   : kindStr == QLatin1String("top") ? ProjectionView::Top
-                                                     : ProjectionView::Left;
+  int kind = kindStr == QLatin1String("right") ? ProjectionView::Right
+             : kindStr == QLatin1String("top") ? ProjectionView::Top
+                                               : ProjectionView::Left;
+  if (kindStr == QLatin1String("face")) {
+    // 보조 투상도: face = 판의 변 근처 점 → 그 면의 바깥 법선
+    QPointF fp;
+    double deg = 0.0;
+    if (!readPoint(args.value(QStringLiteral("face")), fp))
+      return fail(QStringLiteral("kind=face 는 face = 판의 변(면) 근처 점 [x, y] 가 필요합니다."));
+    if (PlateView::isPlate(scene, uuid)) {
+      if (!PlateView::faceAt(scene, uuid, fp, deg))
+        return fail(QStringLiteral("face 점 근처에서 판의 변을 찾지 못했습니다."));
+      kind = ProjectionView::faceKind(deg);
+    } else if (ProjectionView::revFaceAt(scene, uuid, fp, deg)) {
+      // 회전체에 붙은 돌출(받침대): 측면도의 돌출 변 → 그 면 방향 보조 투상도 (평면도처럼 축과 나란히)
+      kind = ProjectionView::revFaceKind(deg);
+    } else {
+      return fail(QStringLiteral("면 선택(보조 투상도)은 단독 돌출 판, 또는 돌출(받침대)이 붙은 회전체의 측면도 돌출 변에서만 됩니다."));
+    }
+  }
   QPointF at;
   if (!readPoint(args.value(QStringLiteral("at")), at))
     return fail(QStringLiteral("at = 놓을 점 [x, y] 가 필요합니다."));
-  QList<RevolveLoop> loops;
   QPointF a0;
   double angle = 0.0;
   QString name;
-  if (!MechModel3D::revolveSection(scene, uuid, loops, a0, angle, name))
-    return fail(QStringLiteral("이 부품은 투상도를 만들 수 있는 회전체가 아닙니다."));
+  if (!ProjectionView::partFrame(scene, uuid, a0, angle, name))
+    return fail(QStringLiteral("이 부품은 투상도를 만들 수 있는 부품(회전체·축·베어링·단독 돌출 판)이 아닙니다."));
   const double param = ProjectionView::paramFor(kind, a0, angle, at);
   const QString viewId = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QUndoStack *undo = m_ctx->undoStack();
@@ -5925,7 +6051,7 @@ QJsonObject AiBridgeServer::toolCreateProjection(const QJsonObject &args) {
     undo->endMacro();
   if (!ok)
     return fail(error);
-  const ProjDrawing d = ProjectionView::build(loops, kind, a0, angle, param, showHidden);
+  const ProjDrawing d = ProjectionView::buildPart(scene, uuid, kind, param, showHidden);
   QJsonObject result;
   result.insert(QStringLiteral("ok"), true);
   result.insert(QStringLiteral("view"), ProjectionView::kindName(kind));
@@ -5965,8 +6091,118 @@ QJsonObject AiBridgeServer::toolCreateExtrude(const QJsonObject &args) {
     return fail(QStringLiteral("닫힌 공간을 찾지 못했습니다."));
   QString host, viewId;
   int viewKind = 0;
-  if (!ExtrudeFeature::findHostView(scene, region, host, viewId, viewKind))
-    return fail(QStringLiteral("공간 근처에 단면 회전체의 측면도가 없습니다."));
+  const bool forceStandalone = args.value(QStringLiteral("standalone")).toBool(false);
+  // 파내기 (cut = true): 판 측면·보조 뷰 / 판 정면 / 회전체 측면도
+  if (args.value(QStringLiteral("cut")).toBool(false)) {
+    const QPointF cc = region.boundingRect().center();
+    const bool through = args.value(QStringLiteral("through")).toBool(false);
+    const QString cname = args.value(QStringLiteral("name")).toString(QStringLiteral("파내기"));
+    const double cdepth = args.value(QStringLiteral("depth")).toDouble(5.0);
+    QString chost, cview;
+    int ckind = ProjectionView::Left;
+    QString where;
+    PlateView::FaceView cfv;
+    QUndoStack *cundo = m_ctx->undoStack();
+    if (cundo)
+      cundo->beginMacro(QStringLiteral("파내기"));
+    QString cerr, cuuid;
+    if (PlateView::viewAt(scene, cc, chost, cfv)) {
+      where = ProjectionView::kindName(cfv.kind);
+      cuuid = ExtrudeFeature::registerPlateBoss(scene, cundo, chost, cfv.viewId, cfv.kind, box, picks, region, cname,
+                                                cdepth, false, &cerr, true, through);
+    } else if (!(chost = PlateView::plateAt(scene, cc, true)).isEmpty()) {
+      where = QStringLiteral("정면");
+      cuuid = ExtrudeFeature::registerPlateFrontCut(scene, cundo, chost, box, picks, region, cname, cdepth, through,
+                                                    &cerr);
+    } else if (ExtrudeFeature::findHostView(scene, region, chost, cview, ckind)) {
+      where = ProjectionView::kindName(ckind);
+      cuuid = ExtrudeFeature::registerExtrude(scene, cundo, chost, cview, ckind, box, picks, region, cname,
+                                              args.value(QStringLiteral("offset")).toDouble(0.0), cdepth, false, &cerr,
+                                              true);
+      if (!cuuid.isEmpty())
+        ProjectionView::ensureFrontView(m_ctx, scene, chost);
+    } else {
+      cerr = QStringLiteral("파낼 부품을 찾지 못했습니다 (판의 정면·측면도·보조 투상도, 회전체 측면도 안 공간).");
+    }
+    if (!cuuid.isEmpty())
+      ProjectionView::regeneratePart(m_ctx, scene, chost);
+    if (cundo)
+      cundo->endMacro();
+    if (cuuid.isEmpty())
+      return fail(cerr);
+    ExtrudeInfo cei;
+    const bool cok = ExtrudeFeature::resolve(scene, cuuid, cei);
+    QJsonObject cres;
+    cres.insert(QStringLiteral("ok"), true);
+    cres.insert(QStringLiteral("cut"), true);
+    cres.insert(QStringLiteral("name"), scene->symbolRegistry()->symbolInfo(cuuid).name);
+    cres.insert(QStringLiteral("host"), scene->symbolRegistry()->symbolInfo(chost).name);
+    cres.insert(QStringLiteral("where"), where);
+    cres.insert(QStringLiteral("resolved"), cok);
+    cres.insert(QStringLiteral("x0"), cei.x0);
+    cres.insert(QStringLiteral("x1"), cei.x1);
+    return cres;
+  }
+  // 판의 측면도·보조 투상도 안 → 그 면에 붙는 돌기
+  {
+    QString plate;
+    PlateView::FaceView fv;
+    if (!forceStandalone && PlateView::viewAt(scene, region.boundingRect().center(), plate, fv)) {
+      QUndoStack *bundo = m_ctx->undoStack();
+      if (bundo)
+        bundo->beginMacro(QStringLiteral("돌출"));
+      QString berr;
+      const QString buuid = ExtrudeFeature::registerPlateBoss(
+          scene, bundo, plate, fv.viewId, fv.kind, box, picks, region,
+          args.value(QStringLiteral("name")).toString(QStringLiteral("돌기")),
+          args.value(QStringLiteral("depth")).toDouble(10.0), args.value(QStringLiteral("merge")).toBool(true), &berr);
+      if (!buuid.isEmpty())
+        ProjectionView::regeneratePart(m_ctx, scene, plate);
+      if (bundo)
+        bundo->endMacro();
+      if (buuid.isEmpty())
+        return fail(berr);
+      ExtrudeInfo bei;
+      const bool bok = ExtrudeFeature::resolve(scene, buuid, bei);
+      QJsonObject bres;
+      bres.insert(QStringLiteral("ok"), true);
+      bres.insert(QStringLiteral("boss"), true);
+      bres.insert(QStringLiteral("name"), scene->symbolRegistry()->symbolInfo(buuid).name);
+      bres.insert(QStringLiteral("plate"), scene->symbolRegistry()->symbolInfo(plate).name);
+      bres.insert(QStringLiteral("view"), ProjectionView::kindName(fv.kind));
+      bres.insert(QStringLiteral("resolved"), bok);
+      bres.insert(QStringLiteral("normalDeg"), bei.angleDeg);
+      bres.insert(QStringLiteral("w0"), bei.x0);
+      bres.insert(QStringLiteral("w1"), bei.x1);
+      return bres;
+    }
+  }
+  if (forceStandalone || !ExtrudeFeature::findHostView(scene, region, host, viewId, viewKind)) {
+    // 단독 돌출 (판·블록): 도면 공간을 Z 로. offset = 시작 Z, symmetric = 가운데 대칭
+    QUndoStack *sundo = m_ctx->undoStack();
+    if (sundo)
+      sundo->beginMacro(QStringLiteral("돌출"));
+    QString serr;
+    const QString suuid = ExtrudeFeature::registerStandalone(
+        scene, sundo, box, picks, region, args.value(QStringLiteral("name")).toString(QStringLiteral("판")),
+        args.value(QStringLiteral("offset")).toDouble(0.0), args.value(QStringLiteral("depth")).toDouble(10.0),
+        args.value(QStringLiteral("symmetric")).toBool(false), &serr);
+    if (sundo)
+      sundo->endMacro();
+    if (suuid.isEmpty())
+      return fail(serr);
+    ExtrudeInfo sei;
+    const bool sok = ExtrudeFeature::resolve(scene, suuid, sei);
+    QJsonObject sres;
+    sres.insert(QStringLiteral("ok"), true);
+    sres.insert(QStringLiteral("standalone"), true);
+    sres.insert(QStringLiteral("name"), scene->symbolRegistry()->symbolInfo(suuid).name);
+    sres.insert(QStringLiteral("resolved"), sok);
+    sres.insert(QStringLiteral("z0"), sei.x0);
+    sres.insert(QStringLiteral("z1"), sei.x1);
+    sres.insert(QStringLiteral("rings"), int(sei.rings.size()));
+    return sres;
+  }
   QUndoStack *undo = m_ctx->undoStack();
   if (undo)
     undo->beginMacro(QStringLiteral("돌출"));

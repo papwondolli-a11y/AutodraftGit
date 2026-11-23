@@ -560,3 +560,14 @@ void DeepGrooveBearingTool::keyPress(QKeyEvent *event) {
     }
     AbstractTool::keyPress(event);
 }
+
+void DeepGrooveBearingTool::placeDirect(IAppContext *ctx, MyGraphicsScene *scene, const DeepGrooveBearingParams &params, const QPointF &origin,
+                     double angleDeg) {
+    if (!ctx || !scene) return;
+    DeepGrooveBearingTool t;
+    t.setContext(ctx);
+    t.m_scene = scene;
+    t.m_params = params;
+    t.m_angleDeg = angleDeg;
+    t.placeAt(origin);
+}

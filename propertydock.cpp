@@ -1,4 +1,6 @@
 #include "propertydock.h"
+#include "mechpartdata.h"
+#include "shaftpick.h"
 #include "cadcommands.h"
 #include "boxtextutil.h"
 #include "textitem.h"
@@ -11,6 +13,7 @@
 //#include "holesectiongenerator.h"
 #include "holesync.h"
 #include "holecalloutlink.h"
+#include "holedialog.h"   // HoleInputCheck (구멍 설정창과 같은 입력 검사)
 #include "leaderitem.h"
 #include "iappcontext.h"
 #include "layermanager.h"
@@ -161,6 +164,18 @@ void PropertyDock::updateDisplay() {
         m_extTable2->setVisible(false);
         m_isUpdating = false;
         return;
+    }
+
+    // ── [3D 기계용] 축 하나만 선택 → 클릭한 지점 구간 + 구간 표 ─────────────────
+    if (m_selectedItems.size() == 1) {
+        const QString partId = first->data(MECH_DATA_PART_ID).toString();
+        MyGraphicsScene *scene = dynamic_cast<MyGraphicsScene *>(first->scene());
+        if (!partId.isEmpty() && scene && scene->symbolRegistry()->hasSymbol(partId) &&
+            scene->symbolRegistry()->symbolInfo(partId).type == QLatin1String("MechShaft")) {
+            showShaftProperties(scene->symbolRegistry()->symbolInfo(partId), partId);
+            m_isUpdating = false;
+            return;
+        }
     }
 
     // ── 심볼 레지스트리 감지 (PlanDoor · PlanWindow) ──────────────────────────
@@ -653,6 +668,50 @@ void PropertyDock::onFitCodeChanged(const QString &text) {
     QTimer::singleShot(0, this, &PropertyDock::updateDisplay);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// [구멍 입력 검사] 구멍 설정창(HoleDialog/HolePDialog)과 같은 규칙 HoleInputCheck
+// ─────────────────────────────────────────────────────────────────────────────
+QString PropertyDock::holeValueProblem(CadItem *ci, const QString &key, const QString &value) const {
+    const MyHole *cur = ci ? dynamic_cast<const MyHole *>(ci->getEntityData()) : nullptr;
+    if (!cur) return QString();
+    // 검사 대상: 깊이·지름 값 (위치·레이어·문자열 등은 제외)
+    MyHole h = *cur;
+    bool ok = false;
+    const double v = value.toDouble(&ok);
+    if (!ok) return QString();
+    if (key == "Depth") h.depth = v;
+    else if (key == "ThreadDepth") h.threadDepth = v;
+    else if (key == "CbDepth") h.cbDepth = v;
+    else if (key == "CbDiameter") h.cbDiameter = v;
+    else if (key == "CsDiameter") h.csDiameter = v;
+    else return QString();
+    HoleInputCheck::Field field = HoleInputCheck::None;
+    const QString problem = HoleInputCheck::problem(h, field);
+    if (problem.isEmpty()) return QString();
+    // 이번에 고친 칸 때문에 생긴 문제만 막는다 (다른 칸이 원래부터 0 인 것은 그 칸을 고칠 때 검사)
+    const bool sameField = (key == "Depth" && field == HoleInputCheck::BaseDepth) ||
+                           (key == "ThreadDepth" && field == HoleInputCheck::ThreadDepth) ||
+                           (key == "CbDepth" && field == HoleInputCheck::CbDepth) ||
+                           (key == "CbDiameter" && field == HoleInputCheck::CbDiameter) ||
+                           (key == "CsDiameter" && field == HoleInputCheck::CsDiameter);
+    return sameField ? problem : QString();
+}
+
+void PropertyDock::warnIncompleteHoles() {
+    for (int i = 0; i < m_selectedItems.size(); ++i) {
+        CadItem *ci = dynamic_cast<CadItem *>(m_selectedItems[i]);
+        const MyHole *h = ci ? dynamic_cast<const MyHole *>(ci->getEntityData()) : nullptr;
+        if (!h) continue;
+        HoleInputCheck::Field field = HoleInputCheck::None;
+        const QString problem = HoleInputCheck::problem(*h, field);
+        if (!problem.isEmpty()) {
+            QMessageBox::information(this, tr("구멍 설정"),
+                                     problem + tr("\n(속성창의 해당 칸에 값을 입력하세요)"));
+            return;   // 한 번만
+        }
+    }
+}
+
 // 구멍 연동 로직은 HoleSync(holesync.cpp)로 이동 — 구멍 콜아웃 편집과 공유
 void PropertyDock::syncHoleCenterLines(CadItem *ci) {
     HoleSync::syncCenterLines(m_appContext, ci);
@@ -974,6 +1033,9 @@ void PropertyDock::onBoolPropertyChanged(const QString &value) {
     }
     if (m_appContext && m_appContext->undoStack()) m_appContext->undoStack()->endMacro();
 
+    // [구멍 입력 검사] 관통 → 막힘으로 바꿨는데 깊이가 0 이면 입력하라고 알린다
+    if (key == "ThroughHole") warnIncompleteHoles();
+
     // [추가] Hole의 ThroughHole 등은 값이 바뀌면 관련 필드(Depth 행 표시 여부 등)가
     // 함께 바뀌어야 하므로 속성창을 다시 그린다.
     QTimer::singleShot(0, this, &PropertyDock::updateDisplay);
@@ -1022,6 +1084,11 @@ void PropertyDock::onCheckBoxPropertyChanged(bool checked) {
     }
     if (m_appContext && m_appContext->undoStack()) m_appContext->undoStack()->endMacro();
 
+    // [구멍 입력 검사] 탭·카운터보어·카운터싱크를 켰는데 깊이·지름이 아직 0 이면 입력하라고 알린다
+    if ((checked && (key == "IsThreaded" || key == "HasCounterbore" || key == "HasCountersink")) ||
+        (!checked && key == "ThroughHole"))
+        warnIncompleteHoles();
+
     // [추가] 탭가공/카운터보어/카운터싱크 On-Off에 따라 아래 그룹 표가 즉시
     // 나타나거나 사라져야 하므로 속성창을 다시 그린다.
     QTimer::singleShot(0, this, &PropertyDock::updateDisplay);
@@ -1042,8 +1109,21 @@ void PropertyDock::onPropertyChanged(int row, int column) {
         m_appContext->undoStack()->beginMacro(QString(tr("Change Property: %1")).arg(key));
     }
 
+    bool holeWarned = false;   // 여러 구멍을 함께 고칠 때 경고는 한 번만
     for (int i = 0; i < m_selectedItems.size(); ++i) {
         if (CadItem *ci = dynamic_cast<CadItem *>(m_selectedItems[i])) {
+            // [구멍 입력 검사] 구멍 설정창과 같은 규칙 — 켜진 항목의 깊이(DP)·지름이 0 이 되는 값은
+            // 적용하지 않고 되돌린다 (표는 아래 updateDisplay 에서 원래 값으로 다시 그려짐)
+            {
+                const QString problem = holeValueProblem(ci, key, value);
+                if (!problem.isEmpty()) {
+                    if (!holeWarned) {
+                        QMessageBox::warning(this, tr("입력 오류"), problem);
+                        holeWarned = true;
+                    }
+                    continue;
+                }
+            }
             // [추가] 카운터보어/카운터싱크 지름은 나사 지름(탭가공된 구멍이면 나사 호칭지름,
             // 아니면 기본구멍 지름)보다 커야 한다 — 그 이하면 나사머리/원뿔이 구멍 벽 밖으로
             // 나가지 못해 실제로 만들 수 없는 형상이 된다. 잘못된 값은 적용하지 않고 되돌린다.
@@ -2170,4 +2250,71 @@ QString PropertyDock::translateKey(const QString &key) {
     if (key == "CbLayer") return tr("카운터보어 레이어");
     if (key == "CsLayer") return tr("카운터싱크 레이어");
     return key;
+}
+
+// [3D 기계용] 축: 선택 지점(마지막 클릭 구간) + 구간 표 (읽기 전용)
+void PropertyDock::showShaftProperties(const SymbolInfo &info, const QString &uuid)
+{
+    m_bottomTable->setVisible(false);
+    m_extTable->setVisible(false);
+    m_extTable2->setVisible(false);
+    if (m_deleteSymbolBtn)
+        m_deleteSymbolBtn->setVisible(false);
+    const ShaftParams p = ShaftParams::fromJsonString(info.props.value(QStringLiteral("Params")).toString(),
+                                                      ShaftParams::sample());
+    const ShaftPickInfo &pk = ShaftPick::last();
+    const bool hasPick = pk.ok && pk.uuid == uuid;
+    struct Row {
+        QString label;
+        QString value;
+        bool header;
+        bool accent;
+    };
+    QList<Row> rows;
+    rows << Row{tr("유형"), tr("축"), false, false};
+    rows << Row{tr("이름"), info.name, false, false};
+    if (hasPick) {
+        rows << Row{tr("선택 지점 · 구간 %1/%2").arg(pk.seg + 1).arg(p.segments.size()), QString(), true, true};
+        for (int i = 0; i < pk.details.size(); ++i) {
+            const QString d = pk.details.at(i);
+            const int sp = d.indexOf(QLatin1Char(' '));
+            rows << Row{sp > 0 ? d.left(sp) : d, sp > 0 ? d.mid(sp + 1) : QString(), false, true};
+        }
+    } else {
+        rows << Row{tr("축을 클릭한 지점의 구간이 여기 표시됩니다"), QString(), true, false};
+    }
+    rows << Row{tr("구간 표 (왼쪽부터)"), QString(), true, false};
+    for (int i = 0; i < p.segments.size(); ++i)
+        rows << Row{tr("구간 %1").arg(i + 1), ShaftPick::segmentSummary(p, i), false, hasPick && pk.seg == i};
+
+    m_topTable->clearSpans();
+    m_topTable->setRowCount(rows.size());
+    const QColor accentBg = palette().color(QPalette::Highlight).lighter(170);
+    for (int i = 0; i < rows.size(); ++i) {
+        const Row &r = rows.at(i);
+        m_topTable->setRowHeight(i, m_topTable->verticalHeader()->defaultSectionSize());
+        QTableWidgetItem *label = new QTableWidgetItem(r.label);
+        label->setFlags(label->flags() & ~Qt::ItemIsEditable);
+        if (r.header) {
+            QFont f = label->font();
+            f.setBold(true);
+            label->setFont(f);
+            m_topTable->setSpan(i, 0, 1, 2);
+        }
+        if (r.accent) {
+            label->setBackground(accentBg);
+            label->setForeground(QColor(12, 68, 124));
+        }
+        m_topTable->setItem(i, 0, label);
+        if (r.header)
+            continue;
+        QTableWidgetItem *value = new QTableWidgetItem(r.value);
+        value->setFlags(value->flags() & ~Qt::ItemIsEditable);
+        value->setToolTip(r.value);
+        if (r.accent) {
+            value->setBackground(accentBg);
+            value->setForeground(QColor(12, 68, 124));
+        }
+        m_topTable->setItem(i, 1, value);
+    }
 }

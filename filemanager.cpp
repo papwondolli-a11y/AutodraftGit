@@ -26,6 +26,7 @@
 #include "twolinetool.h"
 #include "planarchdata.h"
 #include "mechpartdata.h"
+#include "projectionview.h"
 #include "scenesymbolregistry.h"
 #include <QBuffer>
 #include <QDataStream>
@@ -559,6 +560,8 @@ bool FileManager::loadDrawing(const QString &filePath, MyGraphicsScene *scene,
         // 방금 불러온 이 도면의 값으로 TwoLineTool 전역 정적을 즉시 동기화한다
         //   (Setup 명령이 도구 활성화 전에 호출돼도 올바른 값을 보이도록).
         TwoLineTool::loadDocDefaults(scene);
+        // 숨긴 투상도(3D 기계용 > 투상도 숨기기) 안의 구멍은 화면에서 숨김 (보이기 상태는 파일에 없어 다시 계산)
+        ProjectionView::applyConcealedHoles(scene);
 
         db.close();
     }
@@ -1110,6 +1113,17 @@ void FileManager::serializeCadItem(CadItem *item, QDataStream &out,
             for (const auto &v : poly.vertices) {
                 out << v.x - offset.x() << v.y - offset.y();
             }
+            // 곡률(bulge, 꼭짓점 사이 호) — 축 키홈 반원 등. 이진 형식은 그대로 두고 속성 JSON 에 추가
+            //   (예전 파일·예전 버전과 호환: 없으면 모두 직선)
+            bool anyBulge = false;
+            for (size_t bi = 0; bi < poly.bulges.size() && !anyBulge; ++bi)
+                anyBulge = std::abs(poly.bulges[bi]) > 1e-12;
+            if (anyBulge) {
+                QJsonArray ba;
+                for (size_t bi = 0; bi < poly.bulges.size(); ++bi)
+                    ba.append(poly.bulges[bi]);
+                propObj.insert("bulges", ba);
+            }
         }
         // 도어/창문 그룹 태그 보존
         {
@@ -1427,7 +1441,12 @@ CadItem *FileManager::deserializeCadItem(const QString &type,
             in >> vx >> vy;
             vertices.push_back(MyVector(vx, vy));
         }
-        newItem = m_ctx->entityFactory()->createPolyline(vertices, closed, pen);
+        // 곡률(bulge) 복원 — 없으면 모두 직선 (예전 파일)
+        std::vector<double> bulges;
+        const QJsonArray ba = propObj["bulges"].toArray();
+        for (int bi = 0; bi < ba.size(); ++bi)
+            bulges.push_back(ba.at(bi).toDouble());
+        newItem = m_ctx->entityFactory()->createPolyline(vertices, closed, pen, bulges);
         // 도어/창문 그룹 태그 복원
         if (newItem) {
             const QString pdGid = propObj["pdGroupId"].toString();

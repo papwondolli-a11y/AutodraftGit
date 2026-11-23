@@ -173,6 +173,11 @@ bool DepthMove::apply(IAppContext *ctx, MyGraphicsScene *scene, const QString &u
                 *error = QStringLiteral("돌출 단면을 찾지 못했습니다.");
             return false;
         }
+        if (ei.standalone) {
+            if (error)
+                *error = QStringLiteral("단독 돌출(판·블록)은 아직 깊이 이동을 지원하지 않습니다. 돌출 설정의 시작 Z 로 위치를 정하세요.");
+            return false;
+        }
         const double ang = qDegreesToRadians(ei.angleDeg);
         const QPointF u(std::cos(ang), std::sin(ang));
         const double tRef = (refPoint - ei.a0).x() * u.x() + (refPoint - ei.a0).y() * u.y();

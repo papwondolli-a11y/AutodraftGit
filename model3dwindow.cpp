@@ -6,8 +6,10 @@
 #include "model3dexport.h"
 #include "mechmodel3d.h"
 #include "mygraphicsscene.h"
+#include "isodrawtool.h"
 
 #include <QDir>
+#include <QMdiArea>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
@@ -51,6 +53,12 @@ Model3DWindow::Model3DWindow(IAppContext *context, QWidget *parent)
     blender->setToolTip(tr("3D 모델을 Blender 에서 엽니다"));
     bar->addWidget(exportObj);
     bar->addWidget(blender);
+    QPushButton *drawIso = new QPushButton(tr("도면에 그리기"), this);
+    drawIso->setToolTip(tr("지금 화면 방향(또는 KS 등각도)으로 보이는 부품을 도면 선으로 그립니다 (Blender 로 구멍·파내기 적용)"));
+    bar->addWidget(drawIso);
+    m_drawIso = drawIso;
+    m_drawIso->setVisible(false);
+    connect(drawIso, &QPushButton::clicked, this, &Model3DWindow::onDrawIso);
     bar->addSpacing(12);
     m_precisionLabel = new QLabel(tr("정밀도"), this);
     m_precision = new QComboBox(this);
@@ -126,6 +134,23 @@ Model3DWindow::~Model3DWindow() {}
 
 QPointer<Model3DWindow> Model3DWindow::s_instance;
 
+Model3DWindow *Model3DWindow::existing()
+{
+    return s_instance.data();
+}
+
+void Model3DWindow::onDrawIso()
+{
+    if (!m_appContext)
+        return;
+    // 도면 창으로 돌아가 도구 시작 (설정창 기본값 = 이 창의 현재 화면)
+    if (m_appContext->mdiArea() && m_appContext->mdiArea()->window()) {
+        m_appContext->mdiArea()->window()->raise();
+        m_appContext->mdiArea()->window()->activateWindow();
+    }
+    m_appContext->startTool(new IsoDrawTool(nullptr, true));
+}
+
 Model3DWindow *Model3DWindow::instance(IAppContext *context, QWidget *parent)
 {
     if (!s_instance)
@@ -191,6 +216,7 @@ void Model3DWindow::setMode(Mode mode)
     m_precisionLabel->setVisible(mode == Mechanical);
     m_precision->setVisible(mode == Mechanical);
     m_partPanel->setVisible(mode == Mechanical);
+    m_drawIso->setVisible(mode == Mechanical);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

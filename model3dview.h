@@ -28,6 +28,8 @@ public:
     void setModel(const Model3D &model, bool resetCamera);
     void setPreset(Preset p);
     void setOrbit(double yawDeg, double pitchDeg); // 카메라 방향만 바꾼다 (MCP 확인용)
+    double yawDeg() const { return m_yawDeg; }     // 등각도 그리기: 지금 보는 방향
+    double pitchDeg() const { return m_pitchDeg; }
 
 protected:
     void initializeGL() override;
@@ -65,6 +67,11 @@ private:
     Mesh m_lines;  // 모서리선
     QPointF m_center;    // 모델 평면 중심 (정밀도 위해 원점으로 옮김)
     double m_baseZ = 0.0;
+    // 기계 부품만 있는 모델: 도면(XY)에 그린 부품을 정면도처럼 세워 보여 줌
+    //   도면 X → 보기 X, 도면 Y(위) → 보기 위(Z), 도면 Z(보는 쪽) → 보기 앞(−Y, "정면" 카메라 쪽)
+    bool m_standUp = false;
+    double m_centerZ = 0.0;   // 세울 때: 도면 Z 가운데 (앞뒤 중심)
+    double m_baseY = 0.0;     // 세울 때: 도면 Y 최솟값 (바닥에 닿는 높이)
     double m_radius = 10000.0;
 
     // 궤도 카메라

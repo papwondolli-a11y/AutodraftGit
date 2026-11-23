@@ -53,14 +53,19 @@ QString MechPartTag::registerPart(MyGraphicsScene *scene, QUndoStack *undo, QGra
     else if (!refPoint(anchor, ref))
         return QString();
 
-    // 이름 번호: 같은 이름 앞부분으로 등록된 부품 수 + 1 ("축-3", "볼트 M10x40-1" …)
+    // 이름 번호: 같은 이름 앞부분으로 등록된 부품 번호 중 가장 큰 것 + 1 ("축-3", "볼트 M10x40-1" …)
+    //   (개수 + 1 이면 중간 기록이 지워졌을 때 기존 이름과 겹침)
     SceneSymbolRegistry *reg = scene->symbolRegistry();
     int count = 0;
     const QString stem = namePrefix + QLatin1Char('-');
     const QMap<QString, SymbolInfo> &all = reg->allSymbols();
-    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it)
-        if (it.value().type == type && it.value().name.startsWith(stem))
-            ++count;
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        if (it.value().type != type || !it.value().name.startsWith(stem))
+            continue;
+        bool ok = false;
+        const int no = it.value().name.mid(stem.size()).toInt(&ok);
+        count = ok ? std::max(count, no) : count + 1;
+    }
 
     SymbolInfo info;
     info.type = type;

@@ -1,4 +1,5 @@
 #include "holesectiontool.h"
+#include "projectionview.h"
 #include "holedata.h"
 #include "holeitem.h"
 #include "holesectiongenerator.h"
@@ -451,6 +452,9 @@ void HoleSectionTool::placeSection(const QPointF &direction) {
                 m_scene->addItem(lineItem);
             }
         }
+
+        // [3D 기계용] 단면 회전체 정면에 그린 구멍 단면 → 3D 구멍 + 정면 해칭에서 구멍 자리 빼기 (같은 undo 단계)
+        if (m_scene) ProjectionView::syncHoleLinks(ctx, m_scene);
 
         if (ctx->undoStack()) ctx->undoStack()->endMacro();
     }

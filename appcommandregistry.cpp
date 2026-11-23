@@ -104,11 +104,13 @@
 #include "revolvebodytool.h"
 #include "projectionviewtool.h"
 #include "extrudetool.h"
+#include "isodrawtool.h"
 #include "depthmovetool.h"
 #include "shafttool.h"
 #include "deepgroovebearingtool.h"
 #include "taperedrollerbearingtool.h"
 #include "thrustbearingtool.h"
+#include "bearinginserttool.h"
 
 static CommandBase *createDeepGrooveBearingCommand(IAppContext *c) {
   return new ToolCommand<DeepGrooveBearingTool>(c);
@@ -116,6 +118,10 @@ static CommandBase *createDeepGrooveBearingCommand(IAppContext *c) {
 
 static CommandBase *createTaperedRollerBearingCommand(IAppContext *c) {
   return new ToolCommand<TaperedRollerBearingTool>(c);
+}
+
+static CommandBase *createBearingInsertCommand(IAppContext *c) {
+  return new ToolCommand<BearingInsertTool>(c);
 }
 
 static CommandBase *createThrustBearingCommand(IAppContext *c) {
@@ -130,12 +136,28 @@ static CommandBase *createExtrudeCommand(IAppContext *c) {
   return new ToolCommand<ExtrudeTool>(c);
 }
 
+static CommandBase *createCutCommand(IAppContext *c) {
+  return new ToolCommand<CutTool>(c);
+}
+
+static CommandBase *createIsoDrawCommand(IAppContext *c) {
+  return new ToolCommand<IsoDrawTool>(c);
+}
+
 static CommandBase *createProjectionViewCommand(IAppContext *c) {
   return new ToolCommand<ProjectionViewTool>(c);
 }
 
 static CommandBase *createProjectionRegenCommand(IAppContext *c) {
   return new ToolCommand<ProjectionRegenTool>(c);
+}
+
+static CommandBase *createProjectionHideCommand(IAppContext *c) {
+  return new ToolCommand<ProjectionHideTool>(c);
+}
+
+static CommandBase *createProjectionShowCommand(IAppContext *c) {
+  return new ToolCommand<ProjectionShowTool>(c);
 }
 
 static CommandBase *createRevolveBodyCommand(IAppContext *c) {
@@ -266,12 +288,17 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   factory.registerCommand("mech3d.revolve", createRevolveBodyCommand);
   factory.registerCommand("mech3d.projection", createProjectionViewCommand);
   factory.registerCommand("mech3d.projectionregen", createProjectionRegenCommand);
+  factory.registerCommand("mech3d.projectionhide", createProjectionHideCommand);
+  factory.registerCommand("mech3d.projectionshow", createProjectionShowCommand);
   factory.registerCommand("mech3d.extrude", createExtrudeCommand);
+  factory.registerCommand("mech3d.cut", createCutCommand);
+  factory.registerCommand("mech3d.isodraw", createIsoDrawCommand);
   factory.registerCommand("mech3d.depthmove", createDepthMoveCommand);
   factory.registerCommand("mechtools.shaft", createShaftCommand);
   factory.registerCommand("mechtools.deepgroovebearing", createDeepGrooveBearingCommand);
   factory.registerCommand("mechtools.taperedrollerbearing", createTaperedRollerBearingCommand);
   factory.registerCommand("mechtools.thrustbearing", createThrustBearingCommand);
+  factory.registerCommand("mechtools.bearinginsert", createBearingInsertCommand);
   factory.registerCommand("draw.hatch", [](IAppContext *c) {
     return new ToolCommand<HatchTool>(c);
   });
@@ -1833,6 +1860,14 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                          QString());
   }
 
+  // 베어링 넣기: 축 구간 클릭 → 안지름이 맞는 규격(검사) → 턱에 붙여 그림
+  {
+    CommandInfo info(QStringLiteral("tab.mech.bearinginsert"), tr("기계 Tools"),
+                     tr("베어링 넣기"), QString(), QStringLiteral("bearingin"));
+    mgr->registerCommand(factory.createCommand("mechtools.bearinginsert", ctx), info,
+                         QStringLiteral("bearingin"));
+  }
+
   {
     CommandInfo info(QStringLiteral("tab.mech.spring"), tr("기계 Tools"),
                      tr(" 스프링 "), QString(), QString());
@@ -1868,6 +1903,19 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
     mgr->registerCommand(factory.createCommand("mech3d.projection", ctx), info,
                          QStringLiteral("proj3d"));
   }
+  // 메뉴 3D 기계용 — 투상도 숨기기 / 보이기 (기록은 남겨 측면도 구멍 연결 유지)
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.projectionhide"), tr("3D 기계용"),
+                     tr("투상도 숨기기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.projectionhide", ctx), info,
+                         QStringLiteral("proj3dhide"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.projectionshow"), tr("3D 기계용"),
+                     tr("투상도 보이기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.projectionshow", ctx), info,
+                         QStringLiteral("proj3dshow"));
+  }
   {
     CommandInfo info(QStringLiteral("menu.mech3d.projectionregen"), tr("3D 기계용"),
                      tr("투상도 다시 그리기"), QString(), QString());
@@ -1879,6 +1927,18 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                      tr("돌출"), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech3d.extrude", ctx), info,
                          QStringLiteral("ext3d"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.cut"), tr("3D 기계용"),
+                     tr("파내기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.cut", ctx), info,
+                         QStringLiteral("cut3d"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.isodraw"), tr("3D 기계용"),
+                     tr("등각도 그리기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.isodraw", ctx), info,
+                         QStringLiteral("iso3d"));
   }
   {
     CommandInfo info(QStringLiteral("menu.mech3d.depthmove"), tr("3D 기계용"),

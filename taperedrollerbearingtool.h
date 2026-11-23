@@ -55,6 +55,10 @@ public:
                                               const QPointF &origin);
     static QPainterPath buildPath(const TaperedRollerBearingParams &params, const QPointF &origin, double angleDeg = 0.0);
 
+    // 베어링 넣기(축에 맞춰): 설정창·클릭 없이 origin(기준점)·angleDeg(축 방향) 에 바로 그림 (한 undo 매크로)
+    static void placeDirect(IAppContext *ctx, MyGraphicsScene *scene, const TaperedRollerBearingParams &params, const QPointF &origin,
+                            double angleDeg);
+
 private:
     void showPositionPrompt();
     void placeAt(const QPointF &origin);

@@ -82,9 +82,9 @@ for m in bpy.data.materials:
 
 # 키홈·구멍·나사골: "<부품>_키홈커터" / "<부품>_구멍커터" / "<부품>_나사커터" → <부품> 에서 빼기(DIFFERENCE)
 #   (나사산이 무거우면 부품의 "나사커터" 수정자 표시를 끄면 원래 원통으로 돌아간다)
-# 돌출 합치기: "<부품>_합침N" → <부품> 에 더하기(UNION). 도구 객체는 숨김
+# 돌출 합치기: "<부품>_합침N" → <부품> 에 더하기(UNION). 파내기 "<부품>_파내기N" → 빼기. 도구 객체는 숨김
 import re
-_TOOL_RE = re.compile(r"^(.*)_(키홈커터\d*|구멍커터\d*|나사커터\d*|합침\d*)$")
+_TOOL_RE = re.compile(r"^(.*)_(키홈커터\d*|구멍커터\d*|나사커터\d*|합침\d*|파내기\d*)$")
 def _cut_suffix(name):
     m = _TOOL_RE.match(name)
     return ("_" + m.group(2)) if m else None
@@ -104,12 +104,14 @@ for c in [o for o in meshes if _cut_suffix(o.name)]:
                 pass
     c.hide_set(True)
     c.hide_render = True
+# 합치기 도구(받침대 등 "_합침N")는 숨겨도 본체의 일부 → 범위(바닥판·카메라)에는 넣는다
+_union_parts = [o for o in meshes if (_cut_suffix(o.name) or "").startswith("_합침")]
 meshes = [o for o in meshes if not _cut_suffix(o.name)]
 
 # 범위
 mn = Vector((1e9, 1e9, 1e9))
 mx = Vector((-1e9, -1e9, -1e9))
-for o in meshes:
+for o in meshes + _union_parts:
     for c in o.bound_box:
         w = o.matrix_world @ Vector(c)
         mn = Vector((min(mn.x, w.x), min(mn.y, w.y), min(mn.z, w.z)))
@@ -724,6 +726,302 @@ class AUTODRAFT_PT_interference(bpy.types.Panel):
             for line in lines[1:]:
                 box.label(text=line)
 
+# ── 회전 간섭 검사 ─────────────────────────────────────────────────────────
+#   선택한 부품(+ 합침·커터 객체)을 축선 둘레로 각도별로 돌려 다른 부품과 겹치는 각도 구간을 찾는다.
+#   축선 = 활성(또는 선택한) 부품의 끼워맞춤 원통면(_fits.json) 축. 모든 각도에서 닿는 부품 = "항상 맞닿음"(축·끼워진 면).
+#   애니메이션: 축선 위 Empty "회전축" 에 부품을 붙이고 delta 회전을 키프레임 → 재생하면 닿는 프레임에서 빨갛게.
+from mathutils import Matrix
+SWEEP_EMPTY = "회전축"
+
+def _ad_base_name(o):
+    suf = _cut_suffix(o.name)
+    return o.name[:-len(suf)] if suf else o.name
+
+def _ad_group_of(names):
+    out = []
+    for o in bpy.data.objects:
+        if o.type != 'MESH':
+            continue
+        b = _ad_base_name(o)
+        if b in names and o not in out:
+            out.append(o)
+    return out
+
+def _ad_axis_of(names):
+    for n in names:
+        o = bpy.data.objects.get(n)
+        if o is None:
+            continue
+        f = _ad_fit_feats(o)
+        if f:
+            return f[0]["P"], f[0]["D"]
+    return None, None
+
+def _ad_red(o, on):
+    # 객체 재질 슬롯(link=OBJECT)으로 빨강 덮기 / 되돌리기 (메시 재질은 그대로)
+    if on:
+        if o.get("autodraft_sweep_red"):
+            return
+        m = _ad_clash_material()
+        if not o.material_slots:
+            o.data.materials.append(None)
+            o["autodraft_sweep_added_slot"] = True
+        for slot in o.material_slots:
+            slot.link = 'OBJECT'
+            slot.material = m
+        o["autodraft_sweep_red"] = True
+    elif o.get("autodraft_sweep_red"):
+        for slot in o.material_slots:
+            if slot.link == 'OBJECT':
+                slot.material = None
+                slot.link = 'DATA'
+        if o.get("autodraft_sweep_added_slot") and len(o.data.materials) > 0:
+            o.data.materials.pop(index=len(o.data.materials) - 1)
+            del o["autodraft_sweep_added_slot"]
+        del o["autodraft_sweep_red"]
+
+def _ad_fcurves(action):
+    # Blender 4.4 이전: action.fcurves / 5.x 층 구조: layers → strips → channelbags → fcurves
+    fcs = list(getattr(action, "fcurves", None) or [])
+    for layer in getattr(action, "layers", []):
+        for strip in layer.strips:
+            for cb in getattr(strip, "channelbags", []):
+                fcs.extend(cb.fcurves)
+    return fcs
+
+def _ad_sweep_frame(scene, depsgraph=None):
+    info = bpy.app.driver_namespace.get("autodraft_sweep_anim")
+    if not info:
+        return
+    ang = info["a0"] + (scene.frame_current - scene.frame_start) * info["step"]
+    hit_any = False
+    for name, ranges in info["ranges"].items():
+        o = bpy.data.objects.get(name)
+        if o is None:
+            continue
+        hit = any(r[0] - 1e-6 <= ang <= r[1] + 1e-6 for r in ranges)
+        hit_any = hit_any or hit
+        _ad_red(o, hit)
+    for name in info["movers"]:
+        o = bpy.data.objects.get(name)
+        if o is not None and o.visible_get():
+            _ad_red(o, hit_any)
+
+def autodraft_sweep_clear():
+    for h in list(bpy.app.handlers.frame_change_post):
+        if getattr(h, "__name__", "") == "_ad_sweep_frame":
+            bpy.app.handlers.frame_change_post.remove(h)
+    info = bpy.app.driver_namespace.get("autodraft_sweep_anim")
+    for nm in (SWEEP_EMPTY + "_회전", SWEEP_EMPTY):
+        e = bpy.data.objects.get(nm)
+        if e is None:
+            continue
+        for o in list(e.children):
+            mw = o.matrix_world.copy()
+            o.parent = None
+            o.matrix_world = mw
+        bpy.data.objects.remove(e, do_unlink=True)
+    if info:
+        for name, mw in info.get("rest", {}).items():
+            o = bpy.data.objects.get(name)
+            if o is not None:
+                o.matrix_world = Matrix(mw)
+    for o in bpy.data.objects:
+        if o.get("autodraft_sweep_red"):
+            _ad_red(o, False)
+    bpy.app.driver_namespace["autodraft_sweep_anim"] = None
+
+def autodraft_rotation_sweep(names, a0=0.0, a1=360.0, step=2.0, anim=True, quiet=False):
+    """names 부품(+합침·커터)을 축선 둘레로 a0~a1 도를 step 간격으로 돌리며 다른 부품과 겹치는 각도 구간을 찾는다."""
+    autodraft_sweep_clear()
+    names = [n for n in names if bpy.data.objects.get(n) is not None]
+    if not names:
+        return {"error": "돌릴 부품을 고르세요"}
+    P, D = _ad_axis_of(names)
+    if P is None:
+        return {"error": "회전축을 찾지 못했습니다 (회전체·축·베어링 같이 원통면이 있는 부품을 함께 고르세요)"}
+    group = _ad_group_of(names)
+    others = [o for o in _ad_parts() if o not in group]
+    dg = bpy.context.evaluated_depsgraph_get()
+    trees = []
+    for o in others:
+        bm = _ad_world_bm(o, dg)
+        if bm.verts:
+            trees.append((o, BVHTree.FromBMesh(bm)))
+        bm.free()
+    M0 = {o.name: o.matrix_world.copy() for o in group}
+    movers = [o for o in group if o.visible_get()]
+    step = max(0.1, float(step))
+    n = max(1, int(round((a1 - a0) / step)))
+    hits = {o.name: [] for o, t in trees}
+    angles = []
+    for i in range(n + 1):
+        ang = a0 + i * step
+        angles.append(ang)
+        R = Matrix.Translation(P) @ Matrix.Rotation(math.radians(ang), 4, D) @ Matrix.Translation(-P)
+        for o in group:
+            o.matrix_world = R @ M0[o.name]
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        trees_m = []
+        for o in movers:
+            bm = _ad_world_bm(o, dg)
+            if bm.verts:
+                trees_m.append(BVHTree.FromBMesh(bm))
+            bm.free()
+        for o, t in trees:
+            if any(tm.overlap(t) for tm in trees_m):
+                hits[o.name].append(ang)
+    for o in group:
+        o.matrix_world = M0[o.name]
+    bpy.context.view_layer.update()
+    results = []
+    ranges = {}
+    for name, angs in hits.items():
+        if not angs:
+            continue
+        if len(angs) == len(angles):
+            results.append({"other": name, "always": True, "ranges": [[a0, a1]]})
+            continue
+        rs = []
+        for a in angs:
+            if rs and a - rs[-1][1] <= step + 1e-6:
+                rs[-1][1] = a
+            else:
+                rs.append([a, a])
+        ranges[name] = rs
+        results.append({"other": name, "always": False, "ranges": rs})
+    out = {"parts": [o.name for o in movers], "axis_point_mm": [round(v * 1000.0, 3) for v in P],
+           "axis_dir": [round(v, 4) for v in D], "from": a0, "to": a1, "step": step, "results": results}
+    bpy.app.driver_namespace["autodraft_sweep_last"] = out
+    if anim:
+        scene = bpy.context.scene
+        e = bpy.data.objects.new(SWEEP_EMPTY, None)
+        e.empty_display_type = 'SINGLE_ARROW'
+        e.empty_display_size = max(0.01, max(d for d in movers[0].dimensions) * 0.6) if movers else 0.05
+        scene.collection.objects.link(e)
+        # 바깥 Empty = 축선 위 · 로컬 Z 가 축 방향 / 안쪽 Empty = 그 자식, 로컬 Z 둘레로만 회전 (= 축선 둘레)
+        e.matrix_world = Matrix.Translation(P) @ D.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+        spin = bpy.data.objects.new(SWEEP_EMPTY + "_회전", None)
+        spin.empty_display_type = 'ARROWS'
+        spin.empty_display_size = e.empty_display_size * 0.5
+        scene.collection.objects.link(spin)
+        spin.parent = e
+        spin.matrix_parent_inverse = Matrix.Identity(4)
+        spin.rotation_mode = 'XYZ'
+        spin.location = (0.0, 0.0, 0.0)
+        spin.rotation_euler = (0.0, 0.0, 0.0)
+        bpy.context.view_layer.update()
+        for o in group:
+            mw = o.matrix_world.copy()
+            o.parent = spin
+            o.matrix_parent_inverse = spin.matrix_world.inverted()
+            o.matrix_world = mw
+        # 프레임 = 각도 간격이 되게 선형 보간 (Blender 5 의 층 구조 액션도 되도록 새 키프레임 기본값을 잠시 바꿈)
+        prefs = bpy.context.preferences.edit
+        old_interp = prefs.keyframe_new_interpolation_type
+        prefs.keyframe_new_interpolation_type = 'LINEAR'
+        try:
+            spin.rotation_euler = (0.0, 0.0, math.radians(a0))
+            spin.keyframe_insert(data_path="rotation_euler", index=2, frame=1)
+            spin.rotation_euler = (0.0, 0.0, math.radians(a0 + n * step))
+            spin.keyframe_insert(data_path="rotation_euler", index=2, frame=1 + n)
+        finally:
+            prefs.keyframe_new_interpolation_type = old_interp
+        act = spin.animation_data.action if spin.animation_data else None
+        if act is not None:
+            for fc in _ad_fcurves(act):
+                for kp in fc.keyframe_points:
+                    kp.interpolation = 'LINEAR'
+                fc.update()
+        scene.frame_start = 1
+        scene.frame_end = 1 + n
+        bpy.app.driver_namespace["autodraft_sweep_anim"] = {
+            "a0": a0, "step": step, "ranges": ranges, "movers": [o.name for o in movers],
+            "rest": {k: [list(r) for r in v] for k, v in M0.items()}}
+        bpy.app.handlers.frame_change_post.append(_ad_sweep_frame)
+        scene.frame_set(1)
+    if not quiet:
+        print("AUTODRAFT_SWEEP", json.dumps(out, ensure_ascii=False))
+    return out
+
+class AUTODRAFT_OT_rotation_sweep(bpy.types.Operator):
+    bl_idname = "autodraft.rotation_sweep"
+    bl_label = "회전 간섭 검사"
+    bl_description = ("선택한 부품(활성 부품의 원통면 축 둘레)을 각도별로 돌려 다른 부품과 닿는 각도 구간을 찾고, "
+                      "애니메이션으로 만들어 닿는 구간에서 빨갛게 표시합니다")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        sc = context.scene
+        sel = [o for o in context.selected_objects if o.type == 'MESH']
+        if context.active_object is not None and context.active_object.type == 'MESH':
+            sel = [context.active_object] + [o for o in sel if o is not context.active_object]
+        names = []
+        for o in sel:
+            b = _ad_base_name(o)
+            if b not in names:
+                names.append(b)
+        res = autodraft_rotation_sweep(names, sc.autodraft_sweep_from, sc.autodraft_sweep_to,
+                                       sc.autodraft_sweep_step, sc.autodraft_sweep_anim)
+        if "error" in res:
+            self.report({'ERROR'}, res["error"])
+            return {'CANCELLED'}
+        hit = [r for r in res["results"] if not r["always"]]
+        if hit:
+            self.report({'WARNING'}, ", ".join("%s %s" % (r["other"], " ".join("%g~%g°" % (a, b) for a, b in r["ranges"]))
+                                               for r in hit))
+        else:
+            self.report({'INFO'}, "돌리는 동안 닿는 부품 없음")
+        return {'FINISHED'}
+
+class AUTODRAFT_OT_rotation_sweep_clear(bpy.types.Operator):
+    bl_idname = "autodraft.rotation_sweep_clear"
+    bl_label = "되돌리기"
+    bl_description = "회전 애니메이션·빨간 표시를 지우고 부품을 원래 자리로"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        autodraft_sweep_clear()
+        bpy.app.driver_namespace["autodraft_sweep_last"] = None
+        return {'FINISHED'}
+
+class AUTODRAFT_PT_rotation_sweep(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "AutoDraft"
+    bl_label = "회전 간섭 검사"
+
+    def draw(self, context):
+        sc = context.scene
+        col = self.layout.column()
+        col.label(text="돌릴 부품 선택 (축선 = 활성 부품 원통면)")
+        row = col.row(align=True)
+        row.prop(sc, "autodraft_sweep_from")
+        row.prop(sc, "autodraft_sweep_to")
+        col.prop(sc, "autodraft_sweep_step")
+        col.prop(sc, "autodraft_sweep_anim")
+        row = col.row(align=True)
+        row.operator("autodraft.rotation_sweep", icon='FILE_REFRESH')
+        row.operator("autodraft.rotation_sweep_clear", text="", icon='X')
+        res = bpy.app.driver_namespace.get("autodraft_sweep_last")
+        if not res:
+            return
+        box = col.box()
+        box.label(text="돌린 부품: " + ", ".join(res["parts"]))
+        hit = [r for r in res["results"] if not r["always"]]
+        if not hit:
+            box.label(text="돌리는 동안 닿는 부품 없음", icon='CHECKMARK')
+        for r in hit:
+            box.label(text=r["other"], icon='ERROR')
+            box.label(text="    " + ", ".join("%g° ~ %g°" % (a, b) for a, b in r["ranges"]))
+        for r in res["results"]:
+            if r["always"]:
+                box.label(text="항상 맞닿음: " + r["other"], icon='LINKED')
+        if hit and sc.autodraft_sweep_anim:
+            box.label(text="재생(스페이스): 닿는 구간에서 빨강", icon='PLAY')
+
+
 def _ad_register():
     bpy.types.Scene.autodraft_clash_tol = bpy.props.FloatProperty(
         name="허용 (mm)", description="다각형 오차에 더해 접촉으로 볼 겹침 두께", default=0.0, min=0.0, precision=3)
@@ -732,7 +1030,14 @@ def _ad_register():
     bpy.types.Scene.autodraft_clash_ghost = bpy.props.BoolProperty(
         name="간섭 부품 반투명", description="간섭 난 부품을 반투명하게 해 빨간 겹침 부분이 보이게 합니다 (결과 지우기로 복원)",
         default=True)
-    for c in (AUTODRAFT_OT_interference, AUTODRAFT_OT_clear_interference, AUTODRAFT_PT_interference):
+    bpy.types.Scene.autodraft_sweep_from = bpy.props.FloatProperty(name="시작 (°)", default=0.0)
+    bpy.types.Scene.autodraft_sweep_to = bpy.props.FloatProperty(name="끝 (°)", default=360.0)
+    bpy.types.Scene.autodraft_sweep_step = bpy.props.FloatProperty(
+        name="간격 (°)", description="몇 도마다 검사할지 (작을수록 정확·느림)", default=2.0, min=0.1, max=90.0)
+    bpy.types.Scene.autodraft_sweep_anim = bpy.props.BoolProperty(
+        name="애니메이션 만들기", description="회전축 Empty 키프레임 + 닿는 프레임 빨강 (되돌리기로 지움)", default=True)
+    for c in (AUTODRAFT_OT_interference, AUTODRAFT_OT_clear_interference, AUTODRAFT_PT_interference,
+              AUTODRAFT_OT_rotation_sweep, AUTODRAFT_OT_rotation_sweep_clear, AUTODRAFT_PT_rotation_sweep):
         try:
             bpy.utils.unregister_class(c)
         except Exception:
@@ -743,8 +1048,11 @@ _ad_register()
 print("AUTODRAFT_FITS parts=%d" % _ad_load_fits())
 bpy.app.driver_namespace["autodraft_interference"] = autodraft_interference
 bpy.app.driver_namespace["autodraft_clear_interference"] = autodraft_clear_interference
+bpy.app.driver_namespace["autodraft_rotation_sweep"] = autodraft_rotation_sweep
 _bridge["ns"].update(autodraft_interference=autodraft_interference,
-                     autodraft_clear_interference=autodraft_clear_interference)
+                     autodraft_clear_interference=autodraft_clear_interference,
+                     autodraft_rotation_sweep=autodraft_rotation_sweep,
+                     autodraft_sweep_clear=autodraft_sweep_clear)
 )PY";
 
 struct ObjWriter {
@@ -753,25 +1061,65 @@ struct ObjWriter {
     double cx = 0.0;
     double cy = 0.0;
     double baseZ = 0.0;
+    // 기계 부품만 있는 모델: 도면처럼 세움 (3D 보기와 같은 규칙)
+    //   도면 X → Blender X, 도면 Y(위) → Blender Z(위), 도면 Z(보는 쪽) → Blender −Y(앞, 정면 보기 쪽)
+    bool standUp = false;
+    double cz = 0.0;     // 세울 때: 도면 Z 가운데
+    double baseY = 0.0;  // 세울 때: 도면 Y 최솟값 → Blender 바닥 Z = 0
 
     QHash<QString, int> shared; // 객체 안에서 같은 좌표 꼭짓점 공유 (Blender 에서 붙은 메시)
 
     void beginObject() { shared.clear(); }
 
     // 도면 (x, y, z mm, Z 위) → OBJ (m, Y 위): (x, z, -y)
+    //   (X, Y, Z) = Blender 좌표 (Z 위). 세우면 (x, −(z − cz), y − baseY) — 회전이라 면 방향 유지
     int vertex(double x, double y, double z)
     {
-        const double X = (x - cx) / 1000.0;
-        const double Y = (y - cy) / 1000.0;
-        const double Z = (z - baseZ) / 1000.0;
-        const QString key = QString::number(X, 'f', 6) + QLatin1Char(' ') + QString::number(Z, 'f', 6) +
-                            QLatin1Char(' ') + QString::number(-Y, 'f', 6);
+        double X, Y, Z;
+        blender(x, y, z, X, Y, Z);
+        // 같은 점은 같은 글자로: −0.000000 / 0.000000 이 갈리면 이음매가 떨어져 열린 메시가 되고,
+        //   Blender Manifold 불리언(커터 빼기·합치기)이 빈 결과를 낸다 (세운 축·회전체는 축이 0 근처라 자주 생김)
+        const QString key = coord(X) + QLatin1Char(' ') + coord(Z) + QLatin1Char(' ') + coord(-Y);
         QHash<QString, int>::const_iterator it = shared.constFind(key);
         if (it != shared.constEnd())
             return it.value();
         *out << "v " << key << '\n';
         shared.insert(key, nextIndex);
         return nextIndex++;
+    }
+
+    // 좌표 글자 (μm 까지). 0 으로 반올림되는 값은 부호를 떼어 "0.000000" 하나로
+    static QString coord(double v)
+    {
+        double r = std::round(v * 1e6) / 1e6;
+        if (r == 0.0)
+            r = 0.0;                                    // −0.0 → +0.0
+        return QString::number(r, 'f', 6);
+    }
+
+    // 도면 점 (mm) → Blender 좌표 (m, Z 위)
+    void blender(double x, double y, double z, double &X, double &Y, double &Z) const
+    {
+        X = (x - cx) / 1000.0;
+        if (standUp) {
+            Y = -(z - cz) / 1000.0;
+            Z = (y - baseY) / 1000.0;
+        } else {
+            Y = (y - cy) / 1000.0;
+            Z = (z - baseZ) / 1000.0;
+        }
+    }
+    // 도면 방향 → Blender 방향 (단위 벡터, 원점 이동 없음)
+    void blenderDir(double dx, double dy, double dz, double &X, double &Y, double &Z) const
+    {
+        X = dx;
+        if (standUp) {
+            Y = -dz;
+            Z = dy;
+        } else {
+            Y = dy;
+            Z = dz;
+        }
     }
 
     void face3(int a, int b, int c)
@@ -841,7 +1189,7 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
     }
 
     // 평면 중심·최저 높이
-    double minX = 1e300, maxX = -1e300, minY = 1e300, maxY = -1e300, minZ = 1e300;
+    double minX = 1e300, maxX = -1e300, minY = 1e300, maxY = -1e300, minZ = 1e300, maxZ = -1e300;
     for (int i = 0; i < model.solids.size(); ++i) {
         const Model3DSolid &s = model.solids.at(i);
         minZ = std::min(minZ, s.z0);
@@ -867,6 +1215,7 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
                 minY = std::min(minY, double(t.at(k).y()));
                 maxY = std::max(maxY, double(t.at(k).y()));
                 minZ = std::min(minZ, double(t.at(k).z()));
+                maxZ = std::max(maxZ, double(t.at(k).z()));
             }
         }
     }
@@ -907,6 +1256,10 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
     w.cx = (minX + maxX) / 2.0;
     w.cy = (minY + maxY) / 2.0;
     w.baseZ = minZ;
+    // 기계 부품만(건축 벽 없음)이면 도면처럼 세워서 내보냄 — Blender 에서 바닥에 눕지 않게
+    w.standUp = model.solids.isEmpty() && !model.meshes.isEmpty();
+    w.cz = (maxZ > minZ) ? (minZ + maxZ) / 2.0 : minZ;
+    w.baseY = minY;
 
     // 객체별로 묶기: 종류 + 레이어
     QMap<QString, QList<int>> groups;
@@ -980,9 +1333,12 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
         for (int k = 0; k < part.fits.size(); ++k) {
             const Model3DFitFeature &ft = part.fits.at(k);
             QJsonObject o;
-            o.insert(QStringLiteral("o"), QJsonArray{(ft.ox - w.cx) / 1000.0, (ft.oy - w.cy) / 1000.0,
-                                                      (ft.oz - w.baseZ) / 1000.0});
-            o.insert(QStringLiteral("d"), QJsonArray{ft.dx, ft.dy, ft.dz});
+            // 꼭짓점과 같은 변환 (세웠으면 원통 축 방향도 같이 돌림)
+            double bx = 0.0, by = 0.0, bz = 0.0, ddx = 0.0, ddy = 0.0, ddz = 0.0;
+            w.blender(ft.ox, ft.oy, ft.oz, bx, by, bz);
+            w.blenderDir(ft.dx, ft.dy, ft.dz, ddx, ddy, ddz);
+            o.insert(QStringLiteral("o"), QJsonArray{bx, by, bz});
+            o.insert(QStringLiteral("d"), QJsonArray{ddx, ddy, ddz});
             o.insert(QStringLiteral("x0"), ft.x0 / 1000.0);
             o.insert(QStringLiteral("x1"), ft.x1 / 1000.0);
             o.insert(QStringLiteral("r"), ft.radius / 1000.0);

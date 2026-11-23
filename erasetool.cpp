@@ -5,6 +5,7 @@
 #include "gripitem.h"
 #include "iappcontext.h"
 #include "mygraphicsscene.h"
+#include "projectionview.h"
 #include "snapmanager.h"
 #include <QDebug>
 #include <QKeyEvent>
@@ -159,10 +160,16 @@ void EraseTool::executeErase() {
 
   IAppContext *ctx = getContext();
   if (ctx && ctx->undoStack()) {
+    // 지우는 객체의 투상도 태그 (뷰를 통째로 지웠는지·돌기/파내기 스케치를 지웠는지 연동용)
+    QList<QGraphicsItem *> gone;
+    for (auto *item : std::as_const(topSelected))
+      gone << item;
+    const QSet<QString> touched = ProjectionView::viewIdsOf(gone);
     ctx->undoStack()->beginMacro(tr("Erase %1 items").arg(topSelected.size()));
     for (auto *item : std::as_const(topSelected)) {
       ctx->undoStack()->push(new RemoveEntityCommand(m_scene, item));
     }
+    ProjectionView::syncAfterErase(ctx, m_scene, touched);
     ctx->undoStack()->endMacro();
   } else {
     for (auto *item : std::as_const(topSelected)) {
