@@ -1869,6 +1869,9 @@ bool ProjectionView::setViewConcealed(IAppContext *ctx, MyGraphicsScene *scene, 
         return false;
     SymbolInfo info = oldInfo;
     info.props[QStringLiteral("Views")] = QString::fromUtf8(QJsonDocument(views).toJson(QJsonDocument::Compact));
+    // 숨긴 동안은 이 뷰에 그린 돌출·파내기의 기록 모양을 쓰므로 지금 모양으로 맞춰 둠
+    if (on)
+        ExtrudeFeature::freezeRegions(scene, ctx->undoStack(), partUuid, viewId);
     ConcealViewCommand *cmd = new ConcealViewCommand(scene, partUuid, oldInfo, info);
     if (ctx->undoStack())
         ctx->undoStack()->push(cmd);
@@ -1999,6 +2002,14 @@ void ProjectionView::applyConcealedHoles(MyGraphicsScene *scene)
         if (gid.isEmpty())
             continue;
         setConcealed(gi, hiddenGids.contains(gid));
+    }
+    // 숨긴 뷰에 그린 돌출·파내기 스케치 선도 같이 숨김·보이기
+    const QSet<QGraphicsItem *> sketch = ExtrudeFeature::concealedSketchItems(scene);
+    for (int i = 0; i < items.size(); ++i) {
+        QGraphicsItem *gi = items.at(i);
+        if (dynamic_cast<HoleItem *>(gi) || !gi->data(HOLE_DATA_GROUP_ID).toString().isEmpty())
+            continue;                                   // 위에서 처리한 구멍
+        setConcealed(gi, sketch.contains(gi));
     }
 }
 

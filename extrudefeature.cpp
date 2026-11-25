@@ -1,5 +1,10 @@
 #include "extrudefeature.h"
 
+#include "caditem.h"
+#include "hatchitem.h"
+#include "holedata.h"
+#include "iappcontext.h"
+
 #include "mechmodel3d.h"
 #include "mechparttag.h"
 #include "mechpartdata.h"
@@ -192,6 +197,37 @@ QPainterPath repickRegion(MyGraphicsScene *scene, const QRectF &box, const QList
     return region;
 }
 
+// 부품 host 의 viewId 투상도가 숨겨져 있는가
+bool viewConcealed(MyGraphicsScene *scene, const QString &host, const QString &viewId)
+{
+    if (!scene->symbolRegistry()->hasSymbol(host))
+        return false;
+    const QJsonArray vj = QJsonDocument::fromJson(
+                              scene->symbolRegistry()->symbolInfo(host).props.value(QStringLiteral("Views")).toString().toUtf8())
+                              .array();
+    for (int i = 0; i < vj.size(); ++i)
+        if (vj.at(i).toObject().value(QStringLiteral("id")).toString() == viewId)
+            return vj.at(i).toObject().value(QStringLiteral("concealed")).toBool();
+    return false;
+}
+
+// 판의 측면·보조 뷰에 그린 돌기·파내기의 현재 공간 (그 뷰의 판 투상선은 경계에서 뺌)
+//   숨긴 뷰는 스케치 선도 숨으므로 기록 모양을 그대로 씀
+QPainterPath bossRegion(MyGraphicsScene *scene, const QMap<QString, QVariant> &pr)
+{
+    const QString viewId = pr.value(QStringLiteral("ViewId")).toString();
+    if (viewConcealed(scene, pr.value(QStringLiteral("Host")).toString(), viewId))
+        return pr.value(QStringLiteral("ConcealedGone")).toBool() ? QPainterPath() : regionFromJson(pr.value(QStringLiteral("Region")).toString());
+    const QJsonArray b = QJsonDocument::fromJson(pr.value(QStringLiteral("Box")).toString().toUtf8()).array();
+    const QRectF box(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
+    QList<QPointF> picks;
+    const QJsonArray pj = QJsonDocument::fromJson(pr.value(QStringLiteral("Picks")).toString().toUtf8()).array();
+    for (int i = 0; i < pj.size(); ++i)
+        picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
+    // 스케치를 옮겨 고른 점이 빈 곳이 되면 도면틀 같은 엉뚱한 큰 공간이 잡히므로 등록 모양과 비교 (repickRegion)
+    return repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(), QStringList{viewId}, true);
+}
+
 // 회전체에 붙은 돌출(측면도에 그린 공간)의 현재 공간 (도면 좌표)
 //   · 고른 점·사각·등록 모양은 등록 때 절대 좌표 → 등록 때 측면도 중심(ViewCx, ViewCy)에서 지금 중심까지 옮겨서 씀
 //     (측면도와 스케치를 함께 옮겨도 따라감. 옛 기록은 중심이 없어 그대로)
@@ -212,6 +248,12 @@ QPainterPath hostExtrudeRegion(MyGraphicsScene *scene, const QMap<QString, QVari
     for (int i = 0; i < pj.size(); ++i)
         picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble()) + shift;
     const QPainterPath stored = regionFromJson(pr.value(QStringLiteral("Region")).toString()).translated(shift);
+    // 숨긴 측면도: 투상 원·스케치 선이 없으므로 기록 모양을 그대로 (숨길 때 freezeRegions 로 맞춰 둠)
+    if (viewConcealed(scene, pr.value(QStringLiteral("Host")).toString(), viewId)) {
+        if (stale)
+            *stale = false;
+        return pr.value(QStringLiteral("ConcealedGone")).toBool() ? QPainterPath() : stored;
+    }
     // 사각 근처(areaRegion 과 같은 넓힘)의 다른 뷰 태그
     QStringList otherViews;
     {
@@ -233,6 +275,40 @@ QPainterPath hostExtrudeRegion(MyGraphicsScene *scene, const QMap<QString, QVari
     if (region.isEmpty())
         region = stored;
     return region;
+}
+
+// 이 모양의 둘레를 따라 도면 선(사용자 선·그린 측면도의 투상 선)이 아직 있는가 — 둘레 표본의 60 % 이상
+//   꺼진 레이어의 선도 있는 것으로 본다 (레이어를 껐다고 3D 부품이 사라지지 않게)
+bool outlineStillDrawn(MyGraphicsScene *scene, const QPainterPath &region, const QString &viewId)
+{
+    const QList<QPolygonF> polys = region.toSubpathPolygons();
+    const QList<QGraphicsItem *> items = scene->items();
+    int total = 0, hit = 0;
+    for (int i = 0; i < polys.size(); ++i) {
+        QPainterPath one;
+        one.addPolygon(polys.at(i));
+        const int n = 40;
+        for (int k = 0; k < n; ++k) {
+            const QPointF q = one.pointAtPercent((k + 0.5) / n);
+            const QRectF qr(q.x() - 0.1, q.y() - 0.1, 0.2, 0.2);
+            ++total;
+            for (int t = 0; t < items.size(); ++t) {
+                const CadItem *ci = dynamic_cast<const CadItem *>(items.at(t));
+                if (!ci || dynamic_cast<const HatchItem *>(ci))
+                    continue;
+                const QString v = ci->data(MECH_VIEW_ID).toString();
+                if (!v.isEmpty() && v != viewId)
+                    continue;                           // 다른 투상도의 선
+                if (!ci->sceneBoundingRect().adjusted(-0.2, -0.2, 0.2, 0.2).intersects(qr))
+                    continue;
+                if (ci->mapToScene(ci->shape()).intersects(qr)) {
+                    ++hit;
+                    break;
+                }
+            }
+        }
+    }
+    return total > 0 && hit * 10 >= total * 6;
 }
 
 // 회전체 host 의 viewId 측면도 현재 중심. 없으면 false
@@ -395,6 +471,246 @@ QList<QString> ExtrudeFeature::attachedTo(MyGraphicsScene *scene, const QString 
     return out;
 }
 
+QPainterPath ExtrudeFeature::currentArea(MyGraphicsScene *scene, const QString &uuid)
+{
+    if (!scene || !scene->symbolRegistry()->hasSymbol(uuid))
+        return QPainterPath();
+    const QMap<QString, QVariant> pr = scene->symbolRegistry()->symbolInfo(uuid).props;
+    const QString host = pr.value(QStringLiteral("Host")).toString();
+    const QString viewId = pr.value(QStringLiteral("ViewId")).toString();
+    const bool plateBoss = pr.value(QStringLiteral("PlateBoss")).toBool();
+    const bool plateFront = pr.value(QStringLiteral("PlateFront")).toBool();
+    const bool standalone = pr.value(QStringLiteral("Standalone")).toBool();
+    if (!plateBoss && !plateFront && !standalone) {     // 회전체 측면도
+        QPointF c;
+        if (!sideViewCenter(scene, host, viewId, c))
+            return QPainterPath();
+        return hostExtrudeRegion(scene, pr, viewId, c, nullptr);
+    }
+    const QJsonArray b = QJsonDocument::fromJson(pr.value(QStringLiteral("Box")).toString().toUtf8()).array();
+    const QRectF box(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
+    QList<QPointF> picks;
+    const QJsonArray pj = QJsonDocument::fromJson(pr.value(QStringLiteral("Picks")).toString().toUtf8()).array();
+    for (int i = 0; i < pj.size(); ++i)
+        picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
+    if (plateBoss)
+        return bossRegion(scene, pr);
+    // 경계로 치지 않는 뷰 (resolve 와 같은 규칙)
+    const QStringList own = plateViewIds(scene, plateFront ? host : uuid);
+    return repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(), own, true);
+}
+
+void ExtrudeFeature::freezeRegions(MyGraphicsScene *scene, QUndoStack *undo, const QString &host, const QString &viewId)
+{
+    if (!scene)
+        return;
+    SceneSymbolRegistry *reg = scene->symbolRegistry();
+    const QList<QString> ids = attachedTo(scene, host);
+    for (int i = 0; i < ids.size(); ++i) {
+        const SymbolInfo oldInfo = reg->symbolInfo(ids.at(i));
+        ExtrudeInfo ei;
+        if (oldInfo.props.value(QStringLiteral("ViewId")).toString() != viewId)
+            continue;
+        // 스케치를 지워 지금 없는 것은 숨긴 동안에도 없는 것으로 표시 (기록 모양으로 되살아나지 않게)
+        const bool gone = !resolve(scene, ids.at(i), ei);
+        const QPainterPath region = gone ? QPainterPath() : currentArea(scene, ids.at(i));
+        SymbolInfo info = oldInfo;
+        if (gone)
+            info.props[QStringLiteral("ConcealedGone")] = true;
+        else
+            info.props.remove(QStringLiteral("ConcealedGone"));
+        if (!region.isEmpty())
+            info.props[QStringLiteral("Region")] = regionJson(region);
+        // 측면도가 옮겨졌으면 사각·고른 점·등록 중심도 지금 자리로
+        QPointF c;
+        if (!gone && info.props.contains(QStringLiteral("ViewCx")) && sideViewCenter(scene, host, viewId, c)) {
+            const QPointF d = c - QPointF(info.props.value(QStringLiteral("ViewCx")).toDouble(),
+                                          info.props.value(QStringLiteral("ViewCy")).toDouble());
+            const QJsonArray b = QJsonDocument::fromJson(info.props.value(QStringLiteral("Box")).toString().toUtf8()).array();
+            info.props[QStringLiteral("Box")] = QString::fromUtf8(
+                QJsonDocument(QJsonArray{b.at(0).toDouble() + d.x(), b.at(1).toDouble() + d.y(), b.at(2).toDouble(),
+                                         b.at(3).toDouble()})
+                    .toJson(QJsonDocument::Compact));
+            const QJsonArray pj = QJsonDocument::fromJson(info.props.value(QStringLiteral("Picks")).toString().toUtf8()).array();
+            QJsonArray np;
+            for (int k = 0; k < pj.size(); ++k)
+                np.append(QJsonArray{pj.at(k).toArray().at(0).toDouble() + d.x(), pj.at(k).toArray().at(1).toDouble() + d.y()});
+            info.props[QStringLiteral("Picks")] = QString::fromUtf8(QJsonDocument(np).toJson(QJsonDocument::Compact));
+            info.props[QStringLiteral("ViewCx")] = c.x();
+            info.props[QStringLiteral("ViewCy")] = c.y();
+        }
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, ids.at(i), oldInfo, info));
+        else
+            reg->registerSymbol(ids.at(i), info);
+    }
+}
+
+namespace {
+// 도형 ci 가 공간 윤곽 polys 위에 놓인 선인가 (표본의 절반 이상)
+bool liesOnOutline(const CadItem *ci, const QList<QPolygonF> &polys, double tol)
+{
+    const QPainterPath path = ci->sceneTransform().map(ci->geometryPath());
+    if (path.isEmpty() || path.length() < 1e-9)
+        return false;
+    const int n = 20;
+    int hit = 0;
+    for (int s = 0; s < n; ++s) {
+        const QPointF q = path.pointAtPercent((s + 0.5) / n);
+        bool on = false;
+        for (int p = 0; p < polys.size() && !on; ++p)
+            for (int k = 0; k + 1 < polys.at(p).size() && !on; ++k) {
+                const QPointF a = polys.at(p).at(k), d = polys.at(p).at(k + 1) - a;
+                const double l2 = d.x() * d.x() + d.y() * d.y();
+                const double t = l2 < 1e-12 ? 0.0 : qBound(0.0, ((q - a).x() * d.x() + (q - a).y() * d.y()) / l2, 1.0);
+                on = QLineF(q, a + d * t).length() <= tol;
+            }
+        hit += on ? 1 : 0;
+    }
+    return hit * 2 >= n;
+}
+
+// 윤곽 위에 놓인 사용자 선(투상도 선·해칭·구멍·중심선 제외)을 out 에 모음
+void collectSketch(const QList<QGraphicsItem *> &items, const QPainterPath &region, QSet<QGraphicsItem *> &out)
+{
+    if (region.isEmpty())
+        return;
+    const QRectF rb = region.boundingRect();
+    const double tol = std::max(0.05, 0.002 * std::max(rb.width(), rb.height()));
+    const QRectF nearBox = rb.adjusted(-tol, -tol, tol, tol);
+    QList<QPolygonF> polys = region.toSubpathPolygons();
+    for (int i = 0; i < polys.size(); ++i)
+        if (!polys.at(i).isEmpty() && !polys.at(i).isClosed())
+            polys[i] << polys.at(i).first();
+    for (int i = 0; i < items.size(); ++i) {
+        const CadItem *ci = dynamic_cast<const CadItem *>(items.at(i));
+        if (!ci || dynamic_cast<const HatchItem *>(ci) || !ci->data(MECH_VIEW_ID).toString().isEmpty() ||
+            !ci->data(HOLE_DATA_GROUP_ID).toString().isEmpty() || !ci->data(HOLE_SECTION_GROUP_ID).toString().isEmpty())
+            continue;
+        if (ci->sceneBoundingRect().adjusted(-tol, -tol, tol, tol).intersects(nearBox) && liesOnOutline(ci, polys, tol))
+            out.insert(items.at(i));
+    }
+}
+} // namespace
+
+namespace {
+// 기록의 사각·고른 점·모양을 d 만큼 옮김
+void shiftRecord(SymbolInfo &info, const QPointF &d)
+{
+    const QJsonArray b = QJsonDocument::fromJson(info.props.value(QStringLiteral("Box")).toString().toUtf8()).array();
+    info.props[QStringLiteral("Box")] = QString::fromUtf8(
+        QJsonDocument(QJsonArray{b.at(0).toDouble() + d.x(), b.at(1).toDouble() + d.y(), b.at(2).toDouble(), b.at(3).toDouble()})
+            .toJson(QJsonDocument::Compact));
+    const QJsonArray pj = QJsonDocument::fromJson(info.props.value(QStringLiteral("Picks")).toString().toUtf8()).array();
+    QJsonArray np;
+    for (int k = 0; k < pj.size(); ++k)
+        np.append(QJsonArray{pj.at(k).toArray().at(0).toDouble() + d.x(), pj.at(k).toArray().at(1).toDouble() + d.y()});
+    info.props[QStringLiteral("Picks")] = QString::fromUtf8(QJsonDocument(np).toJson(QJsonDocument::Compact));
+    info.props[QStringLiteral("Region")] =
+        regionJson(regionFromJson(info.props.value(QStringLiteral("Region")).toString()).translated(d));
+}
+
+// 가장 큰 고리만 (바깥 윤곽)
+QPainterPath outerLoop(const QPainterPath &region)
+{
+    QPainterPath out;
+    double best = -1.0;
+    const QList<QPolygonF> polys = region.toSubpathPolygons();
+    for (int i = 0; i < polys.size(); ++i)
+        if (std::fabs(ringArea(polys.at(i))) > best) {
+            best = std::fabs(ringArea(polys.at(i)));
+            out = QPainterPath();
+            out.addPolygon(polys.at(i));
+        }
+    return out;
+}
+} // namespace
+
+QMap<QString, QPointF> ExtrudeFeature::sketchesMovedBy(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved)
+{
+    QMap<QString, QPointF> out;
+    if (!scene || moved.isEmpty())
+        return out;
+    const QList<QGraphicsItem *> items = scene->items();
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        const QMap<QString, QVariant> &p = it.value().props;
+        ExtrudeInfo ei;
+        if (it.value().type != QLatin1String("MechExtrude") || !resolve(scene, it.key(), ei))
+            continue;
+        const QString host = p.value(QStringLiteral("Host")).toString(), viewId = p.value(QStringLiteral("ViewId")).toString();
+        if (viewConcealed(scene, host, viewId))
+            continue;                                   // 숨긴 스케치는 선택되지 않음
+        QSet<QGraphicsItem *> sketch;
+        collectSketch(items, outerLoop(currentArea(scene, it.key())), sketch);
+        if (sketch.isEmpty() || !moved.contains(sketch))
+            continue;
+        QPointF c;
+        sideViewCenter(scene, host, viewId, c);
+        out.insert(it.key(), c);
+    }
+    return out;
+}
+
+void ExtrudeFeature::followMove(IAppContext *ctx, MyGraphicsScene *scene, const QMap<QString, QPointF> &records,
+                                const QPointF &delta)
+{
+    if (!ctx || !scene || records.isEmpty())
+        return;
+    SceneSymbolRegistry *reg = scene->symbolRegistry();
+    QUndoStack *undo = ctx->undoStack();
+    QSet<QString> parts;
+    for (QMap<QString, QPointF>::const_iterator it = records.constBegin(); it != records.constEnd(); ++it) {
+        if (!reg->hasSymbol(it.key()))
+            continue;
+        const SymbolInfo oldInfo = reg->symbolInfo(it.key());
+        const QString host = oldInfo.props.value(QStringLiteral("Host")).toString();
+        QPointF d = delta, c;
+        // 측면도가 함께 옮겨진 만큼은 등록 중심(ViewCx)으로 이미 따라감
+        if (oldInfo.props.contains(QStringLiteral("ViewCx")) &&
+            sideViewCenter(scene, host, oldInfo.props.value(QStringLiteral("ViewId")).toString(), c))
+            d -= c - it.value();
+        parts.insert(host.isEmpty() ? it.key() : host);
+        if (std::hypot(d.x(), d.y()) < 1e-9)
+            continue;
+        SymbolInfo info = oldInfo;
+        shiftRecord(info, d);
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, it.key(), oldInfo, info));
+        else
+            reg->registerSymbol(it.key(), info);
+    }
+    for (QSet<QString>::const_iterator p = parts.constBegin(); p != parts.constEnd(); ++p)
+        ProjectionView::regeneratePart(ctx, scene, *p);
+}
+
+QSet<QGraphicsItem *> ExtrudeFeature::concealedSketchItems(MyGraphicsScene *scene)
+{
+    QSet<QGraphicsItem *> hide, keep;
+    if (!scene)
+        return hide;
+    const QList<QGraphicsItem *> items = scene->items();
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        const QMap<QString, QVariant> &p = it.value().props;
+        if (it.value().type != QLatin1String("MechExtrude") ||
+            !viewConcealed(scene, p.value(QStringLiteral("Host")).toString(), p.value(QStringLiteral("ViewId")).toString()))
+            continue;
+        collectSketch(items, currentArea(scene, it.key()), hide);
+    }
+    if (hide.isEmpty())
+        return hide;
+    // 판의 윤곽·정면 파내기에도 쓰는 선은 숨기지 않음 (숨기면 그 판이 없어짐)
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        const QMap<QString, QVariant> &p = it.value().props;
+        if (it.value().type == QLatin1String("MechExtrude") &&
+            (p.value(QStringLiteral("Standalone")).toBool() || p.value(QStringLiteral("PlateFront")).toBool()))
+            collectSketch(items, currentArea(scene, it.key()), keep);
+    }
+    hide.subtract(keep);
+    return hide;
+}
+
 bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, ExtrudeInfo &info)
 {
     if (!scene || !scene->symbolRegistry()->hasSymbol(uuid))
@@ -443,14 +759,7 @@ bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, Extrud
 
     if (info.plateBoss) {
         // 판 돌기: 그린 뷰 안의 공간 (그 뷰의 판 투상선은 경계에서 뺌 — 돌기 뒤로 숨은선이 되며 공간을 쪼개지 않게)
-        const QJsonArray b = QJsonDocument::fromJson(pr.value(QStringLiteral("Box")).toString().toUtf8()).array();
-        const QRectF box(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
-        QList<QPointF> picks;
-        const QJsonArray pj = QJsonDocument::fromJson(pr.value(QStringLiteral("Picks")).toString().toUtf8()).array();
-        for (int i = 0; i < pj.size(); ++i)
-            picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
-        const QPainterPath region =
-            RevolveProfile::areaRegion(scene, box, picks, true, true, true, QStringList{info.viewId});
+        const QPainterPath region = bossRegion(scene, pr);
         if (region.isEmpty())
             return false;                               // 공간 선을 지우면 돌기도 없어짐
         return PlateView::bossSection(scene, info.host, info.viewId, region, info.depth, info.merge, info);
@@ -561,9 +870,9 @@ bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, Extrud
     const QPainterPath region = hostExtrudeRegion(scene, pr, info.viewId, sv->center, &stale);
     if (region.isEmpty())
         return false;
-    // 측면도 중심을 모르는 옛 기록(ViewCx 없음)이 공간을 다시 못 찾으면 등록 때 절대 좌표 모양은 이미 엉뚱한 자리
-    //   (측면도·스케치를 옮긴 뒤) → 어긋난 돌출을 그리지 않고 무시한다. 다시 돌출하면 새 기록으로 대체됨
-    if (stale && !pr.contains(QStringLiteral("ViewCx")))
+    // 다시 못 찾았을 때: 선이 아직 있으면(살짝 벌어짐 등) 등록 모양을 그대로 쓰고,
+    //   그 자리에 선이 남아 있지 않으면 스케치를 지우거나 옮긴 것 → 돌출도 없어진 것 (선을 되살리면 다시 나타남)
+    if (stale && !outlineStillDrawn(scene, region, info.viewId))
         return false;
 
     // 도면 → 로컬 (y, z)

@@ -36,7 +36,8 @@ public:
     // KS 등각도 방향
     static void isoAxes(QVector3D &view, QVector3D &up, double &scale);
     // 3D 창 요·피치(도) → 방향 (창과 같은 식)
-    static void orbitAxes(double yawDeg, double pitchDeg, QVector3D &view, QVector3D &up, double &scale);
+    //   standUp = 창이 부품을 세워 보여 주는 모델 (Model3D::standUp) → 모델 좌표 방향으로 되돌림
+    static void orbitAxes(double yawDeg, double pitchDeg, bool standUp, QVector3D &view, QVector3D &up, double &scale);
 };
 
 #endif // ISODRAWING_H

@@ -671,12 +671,13 @@ TOOLS = [
     {
         "name": "view_3d",
         "description": ("메뉴 3D Layer > 3D 보기 창을 열고(이미 열려 있으면 재사용) 현재 도면의 3D 모델을 다시 만들어 화면을 PNG 로 저장한다. "
-                        "preset = iso(등각, 기본) | top(평면) | front(정면, 남쪽에서) | side(측면, 동쪽에서). yaw/pitch(도)로 방향을 직접 줄 수도 있다. "
+                        "preset = iso(등각, 기본) | top(평면) | front(정면, 남쪽에서) | side(측면, 동쪽에서), 기계용은 xy(도면과 같은 모습) | xz | yz(도면 축 평면). yaw/pitch(도)로 방향을 직접 줄 수도 있다. "
                         "돌려준 path 의 이미지를 읽어 벽·개구부 모양을 확인한다. 벽 레이어 높이가 없으면 빈 화면이다(set_layer_height 먼저)."),
         "inputSchema": {"type": "object", "properties": {
             "mode": {"type": "string", "enum": ["architecture", "mechanical"],
                      "description": "architecture(기본) = 3D 건축용(레이어 높이로 벽), mechanical = 3D 기계용(기계 Tools 축 등 파라메트릭 부품)"},
-            "preset": {"type": "string", "enum": ["iso", "top", "front", "side"]},
+            "preset": {"type": "string", "enum": ["iso", "top", "front", "side", "xy", "xz", "yz"]},
+            "standUp": {"type": "boolean", "description": "mechanical 전용: 세우기(좌표는 도면 그대로, 화면 위 = Y, Blender 는 물체 X 90° 회전). 도면에 기억됨. 생략하면 그대로"},
             "yaw": {"type": "number", "description": "카메라 방위각 (도, 0 = 동쪽에서, -90 = 남쪽에서)"},
             "pitch": {"type": "number", "description": "카메라 높이각 (도, 0 = 수평, 89 = 위에서)"},
             "parts": {"type": "array", "items": {"type": "string"},

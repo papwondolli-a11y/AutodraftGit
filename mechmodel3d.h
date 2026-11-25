@@ -30,6 +30,9 @@ struct ShaftParams;
 class MechModel3D {
 public:
     static Model3D build(MyGraphicsScene *scene);
+    // 세우기 설정 (도면마다 저장, 기본 꺼짐) — Model3D::standUp
+    static bool standUp(MyGraphicsScene *scene);
+    static void setStandUp(MyGraphicsScene *scene, bool on);
 
     // 축 하나 (origin = 왼쪽 끝면 중심) → 본체 + 키홈 절삭체
     //   loops·holes·secHoles = 축의 회전 단면과 구멍(측면도 구멍R·구멍P, 정면 구멍 단면) → 구멍 커터

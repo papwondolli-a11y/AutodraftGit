@@ -13,6 +13,7 @@ class DrawSubWindow;
 class Model3DView;
 class QComboBox;
 class QLabel;
+class QPushButton;
 class QListWidget;
 class QListWidgetItem;
 
@@ -61,6 +62,7 @@ private slots:
     void onFront();
     void onSide();
     void onExportObj();     // OBJ 파일로 저장 (위치 선택)
+    void onStandUp(bool on);   // 기계용: 세우기 (도면마다 저장)
     void onOpenBlender();   // 임시 OBJ + Blender 실행
     void onDrawIso();       // 기계용: 지금 화면 방향으로 도면에 등각도 그리기 (IsoDrawTool)
     void onPrecisionChanged(int index);   // 기계용: 원 둘레 분할 수
@@ -83,6 +85,10 @@ private:
     QLabel *m_status = nullptr;
     QLabel *m_precisionLabel = nullptr;
     QComboBox *m_precision = nullptr;   // 기계용에서만 보임
+    QPushButton *m_top = nullptr;       // 건축 = 평면, 기계 = XY
+    QPushButton *m_front = nullptr;     // 건축 = 정면, 기계 = XZ
+    QPushButton *m_side = nullptr;      // 건축 = 측면, 기계 = YZ
+    QPushButton *m_standUp = nullptr;   // 기계용에서만 보임 [세우기]
     QWidget *m_drawIso = nullptr;       // 기계용에서만 보임 [도면에 그리기]
 };
 

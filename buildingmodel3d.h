@@ -86,6 +86,10 @@ struct Model3D {
     QList<Model3DOpening> openings;
     QList<Model3DWarning> warnings;
     QList<Model3DMeshPart> meshes; // 기계 부품 메시 (3D 기계용)
+    // 세우기 (기계용, 도면마다 저장 — 3D 보기의 [세우기] 버튼, 기본 꺼짐). 좌표는 언제나 도면 X·Y·Z 그대로이고
+    //   보는 방향만 바꾼다: 꺼짐 = 화면 위 Z, 켜짐 = 화면 위 Y. Blender 는 물체 회전 X 90° (로컬 축 = 도면 축)
+    //   부품 종류로 추정하지 않고 전체를 함께 세운다 (MechModel3D::build 가 도면 설정에서 읽음)
+    bool standUp = false;
     QStringList layers;       // 사용한 높이 레이어
     int segmentCount = 0;     // 입력 선분 수 (호는 분할 후)
     int faceCount = 0;        // 찾은 닫힌 영역 수

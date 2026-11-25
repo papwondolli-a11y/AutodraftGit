@@ -5395,6 +5395,8 @@ QJsonObject AiBridgeServer::toolView3D(const QJsonObject &args) {
   win->setMode(args.value(QStringLiteral("mode")).toString() == QLatin1String("mechanical")
                    ? Model3DWindow::Mechanical
                    : Model3DWindow::Architecture);
+  if (args.contains(QStringLiteral("standUp")))          // 세우기 설정 (도면에 기억)
+    MechModel3D::setStandUp(scene, args.value(QStringLiteral("standUp")).toBool());
   win->showDrawing(m_ctx->activeDrawWindow(), true);
   QStringList unknownParts;
   if (win->mode() == Model3DWindow::Mechanical) {
@@ -5418,6 +5420,12 @@ QJsonObject AiBridgeServer::toolView3D(const QJsonObject &args) {
     win->view()->setPreset(Model3DView::Front);
   else if (preset == QLatin1String("side"))
     win->view()->setPreset(Model3DView::Side);
+  else if (preset == QLatin1String("xy"))   // 도면 축 평면 (세우든 눕히든 xy = 도면과 같은 모습)
+    win->view()->setPreset(Model3DView::PlaneXY);
+  else if (preset == QLatin1String("xz"))
+    win->view()->setPreset(Model3DView::PlaneXZ);
+  else if (preset == QLatin1String("yz"))
+    win->view()->setPreset(Model3DView::PlaneYZ);
   else
     win->view()->setPreset(Model3DView::Iso);
   if (args.contains(QStringLiteral("yaw")) || args.contains(QStringLiteral("pitch")))
@@ -5435,6 +5443,7 @@ QJsonObject AiBridgeServer::toolView3D(const QJsonObject &args) {
   result.insert(QStringLiteral("path"), QDir::fromNativeSeparators(path));
   result.insert(QStringLiteral("sizePx"), QStringLiteral("%1x%2").arg(img.width()).arg(img.height()));
   if (win->mode() == Model3DWindow::Mechanical) {
+    result.insert(QStringLiteral("standUp"), MechModel3D::standUp(scene));
     result.insert(QStringLiteral("visibleParts"), QJsonArray::fromStringList(win->visiblePartNames()));
     if (!unknownParts.isEmpty())
       result.insert(QStringLiteral("unknownParts"), QJsonArray::fromStringList(unknownParts));

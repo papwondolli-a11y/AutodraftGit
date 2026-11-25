@@ -11,6 +11,7 @@
 #include <vector>
 
 class QOpenGLShaderProgram;
+class QPainter;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model3DView — Model3D(벽 돌출 덩어리 + 개구부)를 그리는 3D 뷰 (로드맵 3단계)
@@ -20,7 +21,8 @@ class QOpenGLShaderProgram;
 class Model3DView : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
 public:
-    enum Preset { Iso = 0, Top, Front, Side };
+    //   Top·Front·Side = 화면(카메라) 기준. XY·XZ·YZ = 도면 축 기준 (세우든 눕히든 같은 평면을 봄, XY = 도면과 같은 모습)
+    enum Preset { Iso = 0, Top, Front, Side, PlaneXY, PlaneXZ, PlaneYZ };
 
     explicit Model3DView(QWidget *parent = nullptr);
     ~Model3DView() override;
@@ -59,6 +61,7 @@ private:
     void addSolid(const Model3DSolid &s, const QColor &color);
     QVector3D toLocal(double x, double y, double z) const;
     QMatrix4x4 viewProjection() const;
+    void drawAxes(QPainter &painter) const;   // 왼쪽 아래 도면 X·Y·Z 축 표시
     void drawMesh(const Mesh &m, int mode, bool lit);
 
     Model3D m_model;
@@ -67,11 +70,12 @@ private:
     Mesh m_lines;  // 모서리선
     QPointF m_center;    // 모델 평면 중심 (정밀도 위해 원점으로 옮김)
     double m_baseZ = 0.0;
-    // 기계 부품만 있는 모델: 도면(XY)에 그린 부품을 정면도처럼 세워 보여 줌
-    //   도면 X → 보기 X, 도면 Y(위) → 보기 위(Z), 도면 Z(보는 쪽) → 보기 앞(−Y, "정면" 카메라 쪽)
+    // 세우기(Model3D::standUp): 보는 방향만 돌려 도면 Y 가 화면 위가 되게 함 (축 표시도 함께 돌아감)
+    //   도면 X → 보기 X, 도면 Y → 보기 위(Z), 도면 Z → 보기 앞(−Y)
     bool m_standUp = false;
     double m_centerZ = 0.0;   // 세울 때: 도면 Z 가운데 (앞뒤 중심)
     double m_baseY = 0.0;     // 세울 때: 도면 Y 최솟값 (바닥에 닿는 높이)
+    double m_targetZ = 0.0;   // 세울 때: 카메라가 보는 높이 (부품 가운데) — 바닥을 보면 위가 잘림
     double m_radius = 10000.0;
 
     // 궤도 카메라

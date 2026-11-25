@@ -116,7 +116,7 @@ bool IsoDrawTool::compute(IAppContext *ctx, MyGraphicsScene *scene, bool viewMod
     QVector3D view, up;
     double scale = 1.0;
     if (viewMode && win && win->view())
-        IsoDrawing::orbitAxes(win->view()->yawDeg(), win->view()->pitchDeg(), view, up, scale);
+        IsoDrawing::orbitAxes(win->view()->yawDeg(), win->view()->pitchDeg(), model.standUp, view, up, scale);
     else
         IsoDrawing::isoAxes(view, up, scale);
     QList<IsoMesh> meshes;

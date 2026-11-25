@@ -46,6 +46,17 @@ Model3DWindow::Model3DWindow(IAppContext *context, QWidget *parent)
     bar->addWidget(top);
     bar->addWidget(front);
     bar->addWidget(side);
+    m_top = top;
+    m_front = front;
+    m_side = side;
+    m_standUp = new QPushButton(tr("세우기"), this);
+    m_standUp->setCheckable(true);
+    m_standUp->setVisible(false);
+    m_standUp->setToolTip(tr("좌표는 도면 X·Y·Z 그대로 두고 보는 방향만 바꿉니다 (켜면 화면 위 = Y).\n"
+                             "Blender 로 열면 물체에 X 90° 회전을 넣어 세웁니다 (로컬 축 = 도면 축).\n"
+                             "도면마다 기억합니다 (도면을 저장할 때 함께 저장)."));
+    connect(m_standUp, &QPushButton::toggled, this, &Model3DWindow::onStandUp);
+    bar->addWidget(m_standUp);
     bar->addSpacing(12);
     QPushButton *exportObj = new QPushButton(tr("OBJ 내보내기"), this);
     exportObj->setToolTip(tr("3D 모델을 OBJ 파일(단위 m)로 저장합니다. Blender·SketchUp 등에서 열 수 있습니다"));
@@ -180,6 +191,10 @@ void Model3DWindow::showDrawing(DrawSubWindow *drawing, bool resetCamera)
         if (idx >= 0)
             m_precision->setCurrentIndex(idx);
         m_fullModel = MechModel3D::build(m_drawing->scene());
+        {
+            const QSignalBlocker blockStand(m_standUp);
+            m_standUp->setChecked(m_fullModel.standUp);
+        }
         rebuildPartList();
         applyPartFilter(resetCamera);
         return;
@@ -217,6 +232,11 @@ void Model3DWindow::setMode(Mode mode)
     m_precision->setVisible(mode == Mechanical);
     m_partPanel->setVisible(mode == Mechanical);
     m_drawIso->setVisible(mode == Mechanical);
+    // 기계용은 도면 축 평면으로 이름 — 세우든 눕히든 XY = 도면과 같은 모습
+    m_standUp->setVisible(mode == Mechanical);
+    m_top->setText(mode == Mechanical ? tr("XY (도면)") : tr("평면"));
+    m_front->setText(mode == Mechanical ? tr("XZ") : tr("정면"));
+    m_side->setText(mode == Mechanical ? tr("YZ") : tr("측면"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,6 +270,7 @@ void Model3DWindow::applyPartFilter(bool resetCamera)
     QString text = MechModel3D::summaryText(m_model);
     if (total > 0)
         text = tr("부품 %1/%2 표시 · ").arg(total - m_hidden.size()).arg(total) + text;
+    text += m_fullModel.standUp ? tr(" · 화면 위 = Y") : tr(" · 화면 위 = Z");
     m_status->setText(text);
 }
 
@@ -327,9 +348,26 @@ void Model3DWindow::onPartsNone()
     applyPartFilter(false);
 }
 void Model3DWindow::onIso()     { m_view->setPreset(Model3DView::Iso); }
-void Model3DWindow::onTop()     { m_view->setPreset(Model3DView::Top); }
-void Model3DWindow::onFront()   { m_view->setPreset(Model3DView::Front); }
-void Model3DWindow::onSide()    { m_view->setPreset(Model3DView::Side); }
+void Model3DWindow::onTop()
+{
+    m_view->setPreset(m_mode == Mechanical ? Model3DView::PlaneXY : Model3DView::Top);
+}
+void Model3DWindow::onFront()
+{
+    m_view->setPreset(m_mode == Mechanical ? Model3DView::PlaneXZ : Model3DView::Front);
+}
+void Model3DWindow::onSide()
+{
+    m_view->setPreset(m_mode == Mechanical ? Model3DView::PlaneYZ : Model3DView::Side);
+}
+
+void Model3DWindow::onStandUp(bool on)
+{
+    if (m_mode != Mechanical || !m_drawing || !m_drawing->scene())
+        return;
+    MechModel3D::setStandUp(m_drawing->scene(), on);
+    showDrawing(nullptr, true);                         // 위 방향이 바뀌므로 카메라는 등각으로
+}
 
 QString Model3DWindow::drawingBaseName() const
 {

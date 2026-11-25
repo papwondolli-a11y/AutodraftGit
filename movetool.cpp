@@ -1,4 +1,5 @@
 #include "movetool.h"
+#include "extrudefeature.h"
 #include "cadcommands.h"
 #include "caditem.h"
 #include "commanddock.h"
@@ -371,6 +372,16 @@ void MoveTool::executeMoveOrCopy(const MyVector &delta) {
     }
   }
 
+  // 돌출·파내기 스케치를 옮기는가 (옮기기 전에 확인)
+  QMap<QString, QPointF> movedSketches;
+  if (!m_isCopyMode) {
+    QSet<QGraphicsItem *> movedSet;
+    for (int i = 0; i < topItems.size(); ++i)
+      if (topItems.at(i))
+        movedSet.insert(topItems.at(i));
+    movedSketches = ExtrudeFeature::sketchesMovedBy(m_scene, movedSet);
+  }
+
   for (int i = 0; i < topItems.size(); ++i) {
     CadItem *cadItem = topItems.at(i);
     if (!cadItem)
@@ -405,6 +416,9 @@ void MoveTool::executeMoveOrCopy(const MyVector &delta) {
       cadItem->setSelected(true);
     }
   }
+
+  // 스케치를 옮긴 돌출·파내기가 따라가게 (같은 undo 매크로)
+  ExtrudeFeature::followMove(ctx, m_scene, movedSketches, delta.toPointF());
 
   if (ctx && ctx->undoStack()) {
     ctx->undoStack()->endMacro();

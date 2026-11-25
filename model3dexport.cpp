@@ -54,6 +54,21 @@ if meshes:
     bpy.context.view_layer.objects.active = meshes[0]
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
+# 메시 좌표 = 도면 X·Y·Z. 세우기를 켠 도면이면 물체만 X 90° 회전 (로컬 축 = 도면 축, 회전값을 0 으로 하면 눕는다)
+STAND_UP = False
+with open(OBJ, encoding="utf-8", errors="ignore") as _fp:
+    for _i, _ln in enumerate(_fp):
+        if _ln.startswith("# AUTODRAFT_STANDUP"):
+            STAND_UP = True
+        if _i > 10:
+            break
+if STAND_UP:
+    for o in meshes:
+        o.rotation_mode = 'XYZ'
+        o.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+bpy.context.view_layer.update()
+scene["autodraft_stand_up"] = STAND_UP
+
 # 유리: 반투명
 for m in bpy.data.materials:
     if m.name.startswith("Glass"):
@@ -1061,18 +1076,15 @@ struct ObjWriter {
     double cx = 0.0;
     double cy = 0.0;
     double baseZ = 0.0;
-    // 기계 부품만 있는 모델: 도면처럼 세움 (3D 보기와 같은 규칙)
-    //   도면 X → Blender X, 도면 Y(위) → Blender Z(위), 도면 Z(보는 쪽) → Blender −Y(앞, 정면 보기 쪽)
-    bool standUp = false;
-    double cz = 0.0;     // 세울 때: 도면 Z 가운데
-    double baseY = 0.0;  // 세울 때: 도면 Y 최솟값 → Blender 바닥 Z = 0
+    //   좌표는 언제나 도면 X·Y·Z (원점만 옮김). 세우기는 Blender 에서 물체 회전 X 90° 로 한다 (가져오기 스크립트)
+    //   세우기면 원점 = (X 가운데, Y 최솟값, Z 가운데) → 원점 둘레로 X 90° 돌리면 Y 최솟값이 바닥(Z = 0)
 
     QHash<QString, int> shared; // 객체 안에서 같은 좌표 꼭짓점 공유 (Blender 에서 붙은 메시)
 
     void beginObject() { shared.clear(); }
 
     // 도면 (x, y, z mm, Z 위) → OBJ (m, Y 위): (x, z, -y)
-    //   (X, Y, Z) = Blender 좌표 (Z 위). 세우면 (x, −(z − cz), y − baseY) — 회전이라 면 방향 유지
+    //   (X, Y, Z) = Blender 로컬 좌표 = 도면 축
     int vertex(double x, double y, double z)
     {
         double X, Y, Z;
@@ -1101,27 +1113,9 @@ struct ObjWriter {
     void blender(double x, double y, double z, double &X, double &Y, double &Z) const
     {
         X = (x - cx) / 1000.0;
-        if (standUp) {
-            Y = -(z - cz) / 1000.0;
-            Z = (y - baseY) / 1000.0;
-        } else {
-            Y = (y - cy) / 1000.0;
-            Z = (z - baseZ) / 1000.0;
-        }
+        Y = (y - cy) / 1000.0;
+        Z = (z - baseZ) / 1000.0;
     }
-    // 도면 방향 → Blender 방향 (단위 벡터, 원점 이동 없음)
-    void blenderDir(double dx, double dy, double dz, double &X, double &Y, double &Z) const
-    {
-        X = dx;
-        if (standUp) {
-            Y = -dz;
-            Z = dy;
-        } else {
-            Y = dy;
-            Z = dz;
-        }
-    }
-
     void face3(int a, int b, int c)
     {
         if (a == b || b == c || a == c)
@@ -1249,6 +1243,8 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
     }
     QTextStream out(&f);
     out << "# AutoDraft 3D export (단위 m, Y 위쪽)\n";
+    if (model.standUp)
+        out << "# AUTODRAFT_STANDUP\n";                 // 가져오기 스크립트가 읽어 물체를 X 90° 회전
     out << "mtllib " << QFileInfo(mtlPath).fileName() << "\n";
 
     ObjWriter w;
@@ -1256,10 +1252,10 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
     w.cx = (minX + maxX) / 2.0;
     w.cy = (minY + maxY) / 2.0;
     w.baseZ = minZ;
-    // 기계 부품만(건축 벽 없음)이면 도면처럼 세워서 내보냄 — Blender 에서 바닥에 눕지 않게
-    w.standUp = model.solids.isEmpty() && !model.meshes.isEmpty();
-    w.cz = (maxZ > minZ) ? (minZ + maxZ) / 2.0 : minZ;
-    w.baseY = minY;
+    if (model.standUp) {
+        w.cy = minY;
+        w.baseZ = (maxZ > minZ) ? (minZ + maxZ) / 2.0 : minZ;
+    }
 
     // 객체별로 묶기: 종류 + 레이어
     QMap<QString, QList<int>> groups;
@@ -1333,12 +1329,11 @@ bool Model3DExport::writeObj(const Model3D &model, const QString &objPath, QStri
         for (int k = 0; k < part.fits.size(); ++k) {
             const Model3DFitFeature &ft = part.fits.at(k);
             QJsonObject o;
-            // 꼭짓점과 같은 변환 (세웠으면 원통 축 방향도 같이 돌림)
-            double bx = 0.0, by = 0.0, bz = 0.0, ddx = 0.0, ddy = 0.0, ddz = 0.0;
+            // 꼭짓점과 같은 로컬 좌표 (스크립트가 물체의 월드 변환을 곱해 씀)
+            double bx = 0.0, by = 0.0, bz = 0.0;
             w.blender(ft.ox, ft.oy, ft.oz, bx, by, bz);
-            w.blenderDir(ft.dx, ft.dy, ft.dz, ddx, ddy, ddz);
             o.insert(QStringLiteral("o"), QJsonArray{bx, by, bz});
-            o.insert(QStringLiteral("d"), QJsonArray{ddx, ddy, ddz});
+            o.insert(QStringLiteral("d"), QJsonArray{ft.dx, ft.dy, ft.dz});
             o.insert(QStringLiteral("x0"), ft.x0 / 1000.0);
             o.insert(QStringLiteral("x1"), ft.x1 / 1000.0);
             o.insert(QStringLiteral("r"), ft.radius / 1000.0);

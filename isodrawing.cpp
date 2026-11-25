@@ -146,12 +146,16 @@ void IsoDrawing::isoAxes(QVector3D &view, QVector3D &up, double &scale)
     scale = std::sqrt(1.5);                              // 등각도: 축 방향 실제 길이
 }
 
-void IsoDrawing::orbitAxes(double yawDeg, double pitchDeg, QVector3D &view, QVector3D &up, double &scale)
+void IsoDrawing::orbitAxes(double yawDeg, double pitchDeg, bool standUp, QVector3D &view, QVector3D &up, double &scale)
 {
     const double yaw = qDegreesToRadians(yawDeg), pitch = qDegreesToRadians(pitchDeg);
     view = QVector3D(float(std::cos(pitch) * std::cos(yaw)), float(std::cos(pitch) * std::sin(yaw)),
                      float(std::sin(pitch)));
     up = QVector3D(0.0f, 0.0f, 1.0f);                    // 3D 창과 같은 위쪽
+    if (standUp) {                                       // 창이 부품을 세워 보여 줌 → 창 방향을 모델 좌표로 되돌림
+        view = QVector3D(view.x(), view.z(), -view.y());
+        up = QVector3D(0.0f, 1.0f, 0.0f);
+    }
     scale = 1.0;
 }
 
@@ -221,8 +225,11 @@ bool IsoDrawing::blenderMeshes(const Model3D &model, QList<IsoMesh> &out, QStrin
             has = true;
         } else if (line.startsWith(QLatin1String("v "))) {
             const QStringList p = line.mid(2).split(QLatin1Char(' '), Qt::SkipEmptyParts);
-            if (p.size() >= 3)
-                cur.v << QVector3D(p.at(0).toFloat(), p.at(1).toFloat(), p.at(2).toFloat());
+            if (p.size() >= 3) {
+                // Blender 좌표 → 모델 좌표 (x 오른쪽, y 위, z 보는 쪽). 세워 내보낸 모델은 (X, −Z, Y) 로 돌아가 있으므로 되돌린다
+                const float bx = p.at(0).toFloat(), by = p.at(1).toFloat(), bz = p.at(2).toFloat();
+                cur.v << (model.standUp ? QVector3D(bx, bz, -by) : QVector3D(bx, by, bz));
+            }
         } else if (line.startsWith(QLatin1String("f "))) {
             const QStringList p = line.mid(2).split(QLatin1Char(' '), Qt::SkipEmptyParts);
             if (p.size() >= 3)

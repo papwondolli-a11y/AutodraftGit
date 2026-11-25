@@ -7,9 +7,12 @@
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
+#include <QSet>
 #include <QString>
 
 class MyGraphicsScene;
+class IAppContext;
+class QGraphicsItem;
 class QUndoStack;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +62,20 @@ public:
     static bool resolve(MyGraphicsScene *scene, const QString &uuid, ExtrudeInfo &info);
     // 호스트에 붙은 돌출 UUID 들
     static QList<QString> attachedTo(MyGraphicsScene *scene, const QString &hostUuid);
+
+    // 기록이 지금 도면에서 나타내는 공간 (도면 좌표, 그린 자리 그대로). 못 찾으면 빈 경로
+    static QPainterPath currentArea(MyGraphicsScene *scene, const QString &uuid);
+
+    // 도형 이동(MOVE)에 돌출·파내기 기록이 따라가기
+    //   이동 전: 스케치(바깥 윤곽 선)가 모두 옮겨질 기록들 → 이동 후: 기록(사각·고른 점·모양)을 그만큼 옮기고 투상도 갱신
+    //   값 = 이동 전 측면도 중심 (회전체에 붙은 돌출은 측면도가 함께 옮겨진 만큼을 뺀다)
+    static QMap<QString, QPointF> sketchesMovedBy(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved);
+    static void followMove(IAppContext *ctx, MyGraphicsScene *scene, const QMap<QString, QPointF> &records,
+                           const QPointF &delta);
+    // 뷰를 숨기기 직전: 그 뷰에 그린 돌출·파내기의 기록을 지금 모양으로 맞춤 (숨긴 동안은 기록 모양을 쓰므로)
+    static void freezeRegions(MyGraphicsScene *scene, QUndoStack *undo, const QString &host, const QString &viewId);
+    // 숨긴 뷰에 그린 스케치 선들 (숨김 대상) — 판 자체의 윤곽·정면 파내기에도 쓰는 선은 뺌
+    static QSet<QGraphicsItem *> concealedSketchItems(MyGraphicsScene *scene);
 
     // 고른 공간(도면 좌표) 가운데에 가장 가까운 측면도 → 호스트·뷰. 없으면 false
     static bool findHostView(MyGraphicsScene *scene, const QPainterPath &region, QString &host, QString &viewId,

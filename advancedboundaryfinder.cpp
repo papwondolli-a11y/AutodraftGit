@@ -5,124 +5,271 @@
 #include <QPainterPath>
 #include <QPolygonF>
 #include <QLineF>
+#include <QTransform>
 #include <QtMath>
 #include <map>
+#include <set>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <QDebug>
 #include "mymath.h"
 #include "myline.h"
 #include "myspline.h"
 #include "mypolyline.h"
-// 거리 비교를 위한 Epsilon
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 닫힌 공간 찾기
+//   ① 모든 도형을 선분으로 (원·호는 72등분 현 + 다른 도형이 닿는 점을 꼭짓점으로 — 접선·원 위에서 끝나는 선도 이어지게)
+//   ② 선분끼리 교차·끝점 닿음(T자)·겹침을 모두 나눔 (x 순으로 훑어 가까운 것끼리만 — 선분 수 상한 없이 빠름)
+//   ③ 끊긴 가지를 쳐 낸 뒤 반쪽 변(half-edge)을 돌아 면을 찾음. 같은 점을 두 번 지나는 길은 고리로 나눠
+//      바깥 고리와 구멍 고리로 구분
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
 const double EPSILON = 1e-4;
+const double MERGE_TOL = 5e-4;      // 이보다 가까운 꼭짓점은 같은 점
+const double JOIN_TOL = 1e-3;       // 선 끝이 다른 선·원에 닿은 것으로 보는 거리
+const size_t MAX_SEGMENTS = 60000;  // 터무니없이 큰 입력 방어
 
-// 부동 소수점 오차로 인한 그래프 단절을 막기 위한 좌표 스내핑 (소수점 4자리)
-QPointF snap(const QPointF& p) {
-    return QPointF(std::round(p.x() * 10000.0) / 10000.0,
-                   std::round(p.y() * 10000.0) / 10000.0);
+double dist(const QPointF& a, const QPointF& b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); }
+double cross(const QPointF& a, const QPointF& b) { return a.x() * b.y() - a.y() * b.x(); }
+double dot(const QPointF& a, const QPointF& b) { return a.x() * b.x() + a.y() * b.y(); }
+
+void addSegment(std::vector<EdgeSegment>& out, const QPointF& a, const QPointF& b)
+{
+    if (dist(a, b) > EPSILON)
+        out.push_back(EdgeSegment{a, b});
 }
 
-bool AdvancedBoundaryFinder::intersectLineSegments(const QPointF& a1, const QPointF& a2,
-                                                   const QPointF& b1, const QPointF& b2,
-                                                   QPointF& outIntersect) {
-    QLineF line1(a1, a2);
-    QLineF line2(b1, b2);
-    QPointF intersectPoint;
-    QLineF::IntersectType type = line1.intersects(line2, &intersectPoint);
-    if (type == QLineF::BoundedIntersection) {
-        outIntersect = intersectPoint;
-        return true;
+// 원·호 (씬 좌표)
+struct CurveData {
+    QPointF center;
+    double radius = 0.0;
+    bool full = true;
+    double start = 0.0;             // 라디안 (반시계로 start → start + span)
+    double span = 2.0 * M_PI;
+    QPointF p0, p1;                 // 호의 정확한 양 끝점
+};
+
+struct CurvePoint {
+    double t;
+    QPointF p;
+};
+bool lessCurvePoint(const CurvePoint& a, const CurvePoint& b) { return a.t < b.t; }
+
+double wrap2pi(double a)
+{
+    a = std::fmod(a, 2.0 * M_PI);
+    return a < 0.0 ? a + 2.0 * M_PI : a;
+}
+
+// 곡선을 현으로 — 닿는 점(touch)을 꼭짓점으로 끼움
+void tessellate(const CurveData& c, const std::vector<QPointF>& touch, std::vector<EdgeSegment>& out)
+{
+    const int segs = c.full ? 72 : std::max(8, int(std::ceil(72.0 * c.span / (2.0 * M_PI))));
+    std::vector<CurvePoint> pts;
+    for (int k = 0; k <= segs; ++k) {
+        const double t = c.span * k / segs;
+        const double a = c.start + t;
+        pts.push_back(CurvePoint{t, c.center + QPointF(std::cos(a), std::sin(a)) * c.radius});
     }
-    return false;
+    if (c.full) {
+        pts.back().p = pts.front().p;
+    } else {
+        pts.front().p = c.p0;
+        pts.back().p = c.p1;
+    }
+    for (size_t i = 0; i < touch.size(); ++i) {
+        const QPointF d = touch[i] - c.center;
+        if (std::fabs(std::hypot(d.x(), d.y()) - c.radius) > JOIN_TOL)
+            continue;
+        const double t = wrap2pi(std::atan2(d.y(), d.x()) - c.start);
+        if (t < c.span)
+            pts.push_back(CurvePoint{t, touch[i]});
+    }
+    std::stable_sort(pts.begin(), pts.end(), lessCurvePoint);
+    for (size_t i = 1; i < pts.size(); ++i)
+        addSegment(out, pts[i - 1].p, pts[i].p);
 }
 
-double AdvancedBoundaryFinder::normalizeAngle(double angle) {
-    while (angle <= -M_PI) angle += 2.0 * M_PI;
-    while (angle > M_PI) angle -= 2.0 * M_PI;
-    return angle;
+// 한 선분 위의 나눌 점
+struct SplitPoint {
+    double t;
+    QPointF p;
+};
+bool lessSplit(const SplitPoint& a, const SplitPoint& b) { return a.t < b.t; }
+
+// 점이 선분에 닿으면 나눌 점으로
+void addTouch(const EdgeSegment& s, const QPointF& p, std::vector<SplitPoint>& out)
+{
+    const QPointF d = s.p2 - s.p1;
+    const double len = std::hypot(d.x(), d.y());
+    const double t = dot(p - s.p1, d) / (len * len);
+    if (t <= 0.0 || t >= 1.0 || std::fabs(cross(d, p - s.p1)) / len > JOIN_TOL)
+        return;
+    out.push_back(SplitPoint{t, p});
 }
 
-std::vector<EdgeSegment> AdvancedBoundaryFinder::extractSegments(const QList<CadItem*> &items) {
+// 두 선분의 교차·닿음
+void splitPair(const EdgeSegment& a, const EdgeSegment& b, std::vector<SplitPoint>& sa, std::vector<SplitPoint>& sb)
+{
+    addTouch(a, b.p1, sa);
+    addTouch(a, b.p2, sa);
+    addTouch(b, a.p1, sb);
+    addTouch(b, a.p2, sb);
+    const QPointF da = a.p2 - a.p1, db = b.p2 - b.p1;
+    const double den = cross(da, db);
+    if (std::fabs(den) < 1e-9 * std::hypot(da.x(), da.y()) * std::hypot(db.x(), db.y()))
+        return;                                         // 나란함 — 겹침은 끝점 닿음으로 처리됨
+    const double ta = cross(b.p1 - a.p1, db) / den;
+    const double tb = cross(b.p1 - a.p1, da) / den;
+    if (ta < 0.0 || ta > 1.0 || tb < 0.0 || tb > 1.0)
+        return;
+    const QPointF p = a.p1 + da * ta;
+    sa.push_back(SplitPoint{ta, p});
+    sb.push_back(SplitPoint{tb, p});
+}
+
+// x 최솟값 순서 정렬용
+struct SweepItem {
+    double xmin;
+    size_t idx;
+};
+bool lessSweep(const SweepItem& a, const SweepItem& b) { return a.xmin < b.xmin; }
+
+// 가까운 점을 하나로 묶는 꼭짓점 모음
+class VertexPool {
+public:
+    int idOf(const QPointF& p)
+    {
+        const long long gx = (long long)std::floor(p.x() / CELL), gy = (long long)std::floor(p.y() / CELL);
+        int best = -1;
+        double bestD = MERGE_TOL;
+        for (long long x = gx - 1; x <= gx + 1; ++x)
+            for (long long y = gy - 1; y <= gy + 1; ++y) {
+                const std::map<std::pair<long long, long long>, std::vector<int> >::const_iterator it =
+                    m_grid.find(std::make_pair(x, y));
+                if (it == m_grid.end())
+                    continue;
+                for (size_t i = 0; i < it->second.size(); ++i) {
+                    const double d = dist(pts[size_t(it->second[i])], p);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = it->second[i];
+                    }
+                }
+            }
+        if (best >= 0)
+            return best;
+        pts.push_back(p);
+        const int id = int(pts.size()) - 1;
+        m_grid[std::make_pair(gx, gy)].push_back(id);
+        return id;
+    }
+    std::vector<QPointF> pts;
+
+private:
+    static constexpr double CELL = 1e-3;
+    std::map<std::pair<long long, long long>, std::vector<int> > m_grid;
+};
+
+// 한 꼭짓점에서 나가는 변 (반시계 각도 순)
+struct OutEdge {
+    double angle;
+    int half;                       // 반쪽 변 번호
+};
+bool lessOut(const OutEdge& a, const OutEdge& b) { return a.angle < b.angle; }
+
+int rootOf(std::vector<int>& parent, int v)
+{
+    while (parent[size_t(v)] != v) {
+        parent[size_t(v)] = parent[size_t(parent[size_t(v)])];
+        v = parent[size_t(v)];
+    }
+    return v;
+}
+
+// 면 안쪽의 점 (가장 긴 변의 가운데에서 안쪽으로 조금)
+QPointF insidePoint(const QPolygonF& poly)
+{
+    int best = 0;
+    double bestL = -1.0;
+    for (int i = 0; i + 1 < poly.size(); ++i) {
+        const double l = dist(poly.at(i), poly.at(i + 1));
+        if (l > bestL) {
+            bestL = l;
+            best = i;
+        }
+    }
+    const QPointF a = poly.at(best), b = poly.at(best + 1);
+    const QPointF n(-(b.y() - a.y()) / bestL, (b.x() - a.x()) / bestL);
+    const double off = std::min(0.01 * bestL, 10.0 * EPSILON);
+    const QPointF m = (a + b) * 0.5;
+    return poly.containsPoint(m + n * off, Qt::OddEvenFill) ? m + n * off : m - n * off;
+}
+} // namespace
+
+std::vector<EdgeSegment> AdvancedBoundaryFinder::extractSegments(const QList<CadItem*> &items,
+                                                                 const std::vector<QPointF>& exactIntersections) {
     std::vector<EdgeSegment> segments;
+    std::vector<CurveData> curves;
+    std::vector<QPointF> touch = exactIntersections;    // 원·호에 닿는지 볼 점: 교점 + 모든 선·호의 끝점
 
-    for (int i = 0; i < items.size(); ++i) { // C++11 index-based loop
+    for (int i = 0; i < items.size(); ++i) {
         CadItem* item = items[i];
         if (!item) continue;
-
+        const QTransform tr = item->sceneTransform();
         const MyEntity* entity = item->getEntityData();
+        const bool isCircle = entity && entity->type() == EntityType::Circle;
+        const bool isArc = entity && entity->type() == EntityType::Arc;
 
-        // 원(Circle) 객체의 경우, 베지어 곡선 근사 오류를 막기 위해 수학적으로 직접 분할
-        if (entity && entity->type() == EntityType::Circle) {
-            const MyCircle* circle = static_cast<const MyCircle*>(entity);
-            int segs = 72; // 분할 개수
-            std::vector<QPointF> pts;
-            for (int k = 0; k < segs; ++k) {
-                double angle = 2.0 * M_PI * k / segs;
-                double px = circle->center.x + circle->radius * std::cos(angle);
-                double py = circle->center.y + circle->radius * std::sin(angle);
-                pts.push_back(snap(item->sceneTransform().map(QPointF(px, py))));
+        if (isCircle || isArc) {
+            // 원·호: 베지어 근사 대신 중심·반지름으로 직접 나눔
+            CurveData c;
+            if (isCircle) {
+                const MyCircle* circle = static_cast<const MyCircle*>(entity);
+                c.center = tr.map(QPointF(circle->center.x, circle->center.y));
+                c.radius = dist(c.center, tr.map(QPointF(circle->center.x + circle->radius, circle->center.y)));
+            } else {
+                const MyArc* arc = static_cast<const MyArc*>(entity);
+                c.full = false;
+                c.center = tr.map(QPointF(arc->center.x, arc->center.y));
+                QPointF s = tr.map(arc->startPoint().toPointF()), e = tr.map(arc->endPoint().toPointF());
+                double span = qDegreesToRadians(arc->spanAngle);
+                if (tr.determinant() < 0.0)
+                    span = -span;                       // 뒤집힌 변환
+                if (span < 0.0) {
+                    std::swap(s, e);
+                    span = -span;
+                }
+                c.radius = dist(c.center, s);
+                c.start = std::atan2(s.y() - c.center.y(), s.x() - c.center.x());
+                c.span = span;
+                c.p0 = s;
+                c.p1 = e;
+                touch.push_back(s);
+                touch.push_back(e);
             }
-            for (int k = 0; k < segs; ++k) {
-                QPointF p1 = pts[k];
-                QPointF p2 = pts[(k+1) % segs];
-                if (QLineF(p1, p2).length() > EPSILON) segments.push_back({p1, p2, 0, 0});
-            }
-            continue;
-        }
-        // 호(Arc) 객체의 경우, 끝점 연속성 보장을 위해 수학적으로 분할하고 양 끝점을 정확히 강제 맞춤
-        else if (entity && entity->type() == EntityType::Arc) {
-            const MyArc* arc = static_cast<const MyArc*>(entity);
-            double startRad = qDegreesToRadians(arc->startAngle);
-            double spanRad = qDegreesToRadians(arc->spanAngle);
-            int segs = std::max(8, int(std::ceil(72.0 * std::abs(spanRad) / (2.0 * M_PI))));
-
-            std::vector<QPointF> pts;
-            for (int k = 0; k <= segs; ++k) {
-                double angle = startRad + spanRad * k / segs;
-                double px = arc->center.x + arc->radius * std::cos(angle);
-                double py = arc->center.y + arc->radius * std::sin(angle);
-                pts.push_back(snap(item->sceneTransform().map(QPointF(px, py))));
-            }
-
-            // 수학적으로 정확한 끝점 보정
-            MyVector startPt = arc->startPoint();
-            MyVector endPt = arc->endPoint();
-            pts.front() = snap(item->sceneTransform().map(startPt.toPointF()));
-            pts.back() = snap(item->sceneTransform().map(endPt.toPointF()));
-
-            for (int k = 0; k < segs; ++k) {
-                QPointF p1 = pts[k];
-                QPointF p2 = pts[k+1];
-                if (QLineF(p1, p2).length() > EPSILON) segments.push_back({p1, p2, 0, 0});
-            }
+            if (c.radius > EPSILON)
+                curves.push_back(c);
             continue;
         }
 
-        // --- 기본 처리 (Line, Polyline 등 직선형 기반 객체) ---
-        QPainterPath path = item->geometryPath();
-        path = item->sceneTransform().map(path);
-        QList<QPolygonF> polygons = path.toSubpathPolygons();
-
+        // 직선형 객체 (선·폴리라인·블록 등)
+        const QPainterPath path = tr.map(item->geometryPath());
+        const QList<QPolygonF> polygons = path.toSubpathPolygons();
         for (int pIdx = 0; pIdx < polygons.size(); ++pIdx) {
-            const QPolygonF& poly = polygons[pIdx];
-            for (int k = 0; k < poly.size() - 1; ++k) {
-                QPointF p1 = snap(poly[k]);
-                QPointF p2 = snap(poly[k+1]);
-                if (QLineF(p1, p2).length() > EPSILON) {
-                    segments.push_back({p1, p2, 0, 0});
-                }
-            }
-            // 닫힌 폴리곤 처리
-            if (poly.isClosed() && poly.size() > 1) {
-                QPointF p1 = snap(poly.last());
-                QPointF p2 = snap(poly.first());
-                if (QLineF(p1, p2).length() > EPSILON) {
-                    segments.push_back({p1, p2, 0, 0});
-                }
-            }
+            const QPolygonF& poly = polygons.at(pIdx);
+            for (int k = 0; k + 1 < poly.size(); ++k)
+                addSegment(segments, poly.at(k), poly.at(k + 1));
         }
     }
+    for (size_t i = 0; i < segments.size(); ++i) {
+        touch.push_back(segments[i].p1);
+        touch.push_back(segments[i].p2);
+    }
+    for (size_t i = 0; i < curves.size(); ++i)
+        tessellate(curves[i], touch, segments);
     return segments;
 }
 
@@ -191,296 +338,230 @@ std::vector<QPointF> AdvancedBoundaryFinder::getExactIntersections(const QList<C
     return exactPoints;
 }
 
-std::vector<EdgeSegment> AdvancedBoundaryFinder::splitIntersectingSegments(const std::vector<EdgeSegment>& segments, const std::vector<QPointF>& exactIntersections) {
-    std::vector<EdgeSegment> result;
-
-    // [#5 수정] O(N²) 교차 검사 상한값 방어 코드
-    // 선분이 너무 많을 경우 UI 프리즈가 발생합니다.
-    // 상한값을 초과하면 경고를 출력하고 교차 처리 없이 원본 선분을 그대로 반환합니다.
-    const size_t MAX_SEGMENTS = 500;
+std::vector<EdgeSegment> AdvancedBoundaryFinder::splitIntersectingSegments(const std::vector<EdgeSegment>& segments) {
     if (segments.size() > MAX_SEGMENTS) {
-        qWarning() << "[AdvancedBoundaryFinder] Too many segments (" << segments.size()
-                   << "). Skipping intersection split to avoid O(N²) freeze."
-                   << "Consider simplifying the geometry.";
-        // angle, length 미리 계산 후 원본 선분 반환
-        std::vector<EdgeSegment> raw = segments;
-        for (size_t i = 0; i < raw.size(); ++i) {
-            QLineF line(raw[i].p1, raw[i].p2);
-            raw[i].length = line.length();
-            raw[i].angle = std::atan2(line.dy(), line.dx());
-        }
-        return raw;
+        qWarning() << "[AdvancedBoundaryFinder] Too many segments:" << segments.size();
+        return segments;
     }
-
-    for (size_t i = 0; i < segments.size(); ++i) {
-        std::vector<QPointF> splitPoints;
-        splitPoints.push_back(segments[i].p1);
-        splitPoints.push_back(segments[i].p2);
-        
-        // MyMath의 정확한 교점들을 해당 선분에 스냅
-        QLineF currentLine(segments[i].p1, segments[i].p2);
-        for (size_t k = 0; k < exactIntersections.size(); ++k) {
-            QPointF p = exactIntersections[k];
-            // 선분의 바운딩 박스 체크를 완화하여 약간 떨어진 교점도 포섭할 수 있게 함
-            double t = 0;
-            if (currentLine.length() > EPSILON) {
-                QLineF pLine(currentLine.p1(), p);
-                t = (pLine.dx() * currentLine.dx() + pLine.dy() * currentLine.dy()) / (currentLine.length() * currentLine.length());
-            }
-            if (t >= -0.01 && t <= 1.01) {
-                QPointF projected(currentLine.p1().x() + t * currentLine.dx(), currentLine.p1().y() + t * currentLine.dy());
-                if (QLineF(p, projected).length() < EPSILON * 50) { // 오차 허용범위 확대
-                    QPointF snapped = snap(projected);
-                    bool isDup = false;
-                    for (size_t d = 0; d < splitPoints.size(); ++d) {
-                        if (QLineF(splitPoints[d], snapped).length() < EPSILON) {
-                            isDup = true; break;
-                        }
-                    }
-                    if (!isDup) splitPoints.push_back(snapped);
-                }
-            }
+    const size_t n = segments.size();
+    std::vector<std::vector<SplitPoint> > splits(n);
+    // x 순으로 훑으며 경계 사각이 (거의) 닿는 것끼리만 검사
+    std::vector<SweepItem> order;
+    for (size_t i = 0; i < n; ++i)
+        order.push_back(SweepItem{std::min(segments[i].p1.x(), segments[i].p2.x()) - JOIN_TOL, i});
+    std::sort(order.begin(), order.end(), lessSweep);
+    std::vector<size_t> active;
+    for (size_t k = 0; k < order.size(); ++k) {
+        const size_t i = order[k].idx;
+        const double ylo = std::min(segments[i].p1.y(), segments[i].p2.y()) - JOIN_TOL;
+        const double yhi = std::max(segments[i].p1.y(), segments[i].p2.y()) + JOIN_TOL;
+        size_t w = 0;
+        for (size_t m = 0; m < active.size(); ++m) {
+            const size_t j = active[m];
+            if (std::max(segments[j].p1.x(), segments[j].p2.x()) + JOIN_TOL < order[k].xmin)
+                continue;                               // 왼쪽으로 지나감
+            active[w++] = j;
+            if (std::max(segments[j].p1.y(), segments[j].p2.y()) < ylo ||
+                std::min(segments[j].p1.y(), segments[j].p2.y()) > yhi)
+                continue;
+            splitPair(segments[i], segments[j], splits[i], splits[j]);
         }
-
-        for (size_t j = 0; j < segments.size(); ++j) {
-            if (i == j) continue;
-            QPointF intersect;
-            if (intersectLineSegments(segments[i].p1, segments[i].p2, segments[j].p1, segments[j].p2, intersect)) {
-                QPointF snapped = snap(intersect);
-                // [추가] 중복 포인트 방지
-                bool isDuplicate = false;
-                for (size_t d = 0; d < splitPoints.size(); ++d) {
-                    if (QLineF(splitPoints[d], snapped).length() < EPSILON) {
-                        isDuplicate = true;
-                        break;
-                    }
-                }
-                if (!isDuplicate) {
-                    splitPoints.push_back(snapped);
-                }
-            }
-        }
-
-        // 정렬
-        QPointF origin = segments[i].p1;
-        std::sort(splitPoints.begin(), splitPoints.end(), [&origin](const QPointF& a, const QPointF& b) {
-            return QLineF(origin, a).length() < QLineF(origin, b).length();
-        });
-
-        // 중복 제거 후 분할된 선분 추가
-        for (size_t k = 0; k < splitPoints.size() - 1; ++k) {
-            QPointF p1 = splitPoints[k];
-            QPointF p2 = splitPoints[k+1];
-            if (QLineF(p1, p2).length() > EPSILON) {
-                result.push_back({p1, p2, 0, 0});
-            }
-        }
+        active.resize(w);
+        active.push_back(i);
     }
-
-    // 계산 편의를 위해 각 edge마다 angle과 length 미리 계산
-    for (size_t i = 0; i < result.size(); ++i) {
-        QLineF line(result[i].p1, result[i].p2);
-        result[i].length = line.length();
-        result[i].angle = std::atan2(line.dy(), line.dx());
+    std::vector<EdgeSegment> result;
+    for (size_t i = 0; i < n; ++i) {
+        std::vector<SplitPoint>& sp = splits[i];
+        std::sort(sp.begin(), sp.end(), lessSplit);
+        QPointF prev = segments[i].p1;
+        for (size_t k = 0; k < sp.size(); ++k) {
+            result.push_back(EdgeSegment{prev, sp[k].p});
+            prev = sp[k].p;
+        }
+        result.push_back(EdgeSegment{prev, segments[i].p2});
     }
-
     return result;
 }
 
-// 스냅된 점을 키로 사용하기 위한 비교자
-struct PointComparator {
-    bool operator()(const QPointF& a, const QPointF& b) const {
-        if (std::abs(a.x() - b.x()) > 1e-5) return a.x() < b.x();
-        return a.y() < b.y() - 1e-5;
-    }
-};
-
 double AdvancedBoundaryFinder::getSignedArea(const QPolygonF& poly) {
     double area = 0.0;
-    for (int i = 0; i < poly.size() - 1; ++i) {
+    for (int i = 0; i + 1 < poly.size(); ++i)
         area += (poly[i].x() * poly[i+1].y() - poly[i+1].x() * poly[i].y());
-    }
     return area / 2.0;
 }
 
-std::vector<QPolygonF> AdvancedBoundaryFinder::findAllFaces(const std::vector<EdgeSegment>& edges) {
-    std::map<QPointF, std::vector<EdgeSegment>, PointComparator> adjList;
-
+std::vector<BoundaryFace> AdvancedBoundaryFinder::findAllFaces(const std::vector<EdgeSegment>& edges) {
+    std::vector<BoundaryFace> faces;
+    VertexPool pool;
+    std::set<std::pair<int, int> > edgeSet;             // 겹친 선은 하나로
     for (size_t i = 0; i < edges.size(); ++i) {
-        EdgeSegment fwd = edges[i];
-        EdgeSegment bwd = {edges[i].p2, edges[i].p1, normalizeAngle(edges[i].angle + M_PI), edges[i].length};
-        adjList[snap(fwd.p1)].push_back(fwd);
-        adjList[snap(bwd.p1)].push_back(bwd);
+        const int a = pool.idOf(edges[i].p1), b = pool.idOf(edges[i].p2);
+        if (a != b)
+            edgeSet.insert(std::make_pair(std::min(a, b), std::max(a, b)));
     }
-
-    for (auto it = adjList.begin(); it != adjList.end(); ++it) {
-        std::sort(it->second.begin(), it->second.end(), [](const EdgeSegment& a, const EdgeSegment& b) {
-            return a.angle < b.angle;
-        });
+    const size_t nv = pool.pts.size();
+    // 끊긴 가지(한쪽 끝이 빈 선) 쳐 내기
+    std::vector<std::set<int> > nb(nv);
+    for (std::set<std::pair<int, int> >::const_iterator it = edgeSet.begin(); it != edgeSet.end(); ++it) {
+        nb[size_t(it->first)].insert(it->second);
+        nb[size_t(it->second)].insert(it->first);
     }
-
-    struct EdgeId {
-        QPointF p1, p2;
-        bool operator<(const EdgeId& o) const {
-            if (std::abs(p1.x() - o.p1.x()) > 1e-5) return p1.x() < o.p1.x();
-            if (std::abs(p1.y() - o.p1.y()) > 1e-5) return p1.y() < o.p1.y();
-            if (std::abs(p2.x() - o.p2.x()) > 1e-5) return p2.x() < o.p2.x();
-            return p2.y() < o.p2.y() - 1e-5;
+    std::vector<int> stack;
+    for (size_t v = 0; v < nv; ++v)
+        if (nb[v].size() == 1)
+            stack.push_back(int(v));
+    while (!stack.empty()) {
+        const int v = stack.back();
+        stack.pop_back();
+        if (nb[size_t(v)].size() != 1)
+            continue;
+        const int o = *nb[size_t(v)].begin();
+        nb[size_t(v)].clear();
+        nb[size_t(o)].erase(v);
+        if (nb[size_t(o)].size() == 1)
+            stack.push_back(o);
+    }
+    // 반쪽 변: 2k = a→b, 2k+1 = b→a. 덩어리(이어진 선) 번호
+    std::vector<int> from, to, parent(nv);
+    for (size_t v = 0; v < nv; ++v)
+        parent[v] = int(v);
+    std::vector<std::vector<OutEdge> > out(nv);
+    for (size_t v = 0; v < nv; ++v)
+        for (std::set<int>::const_iterator it = nb[v].begin(); it != nb[v].end(); ++it) {
+            if (*it < int(v))
+                continue;
+            const int h = int(from.size());
+            from.push_back(int(v));
+            to.push_back(*it);
+            from.push_back(*it);
+            to.push_back(int(v));
+            const QPointF d = pool.pts[size_t(*it)] - pool.pts[v];
+            out[v].push_back(OutEdge{std::atan2(d.y(), d.x()), h});
+            out[size_t(*it)].push_back(OutEdge{std::atan2(-d.y(), -d.x()), h + 1});
+            parent[size_t(rootOf(parent, int(v)))] = rootOf(parent, *it);
         }
-    };
-    std::map<EdgeId, bool> visited;
-    std::vector<QPolygonF> internalFaces;
-
-    // [수정] C++11 range-loop 제거 및 Iterator 기반 처리
-    for (auto it = adjList.begin(); it != adjList.end(); ++it) {
-        for (size_t k = 0; k < it->second.size(); ++k) {
-            const EdgeSegment& startEdge = it->second[k];
-            EdgeId sid = {snap(startEdge.p1), snap(startEdge.p2)};
-            if (visited[sid]) continue;
-
-            QPolygonF poly;
-            EdgeSegment curr = startEdge;
-            int steps = 0;
-            int maxSteps = edges.size() * 2;
-            bool closed = false;
-
-            while (steps < maxSteps) {
-                poly << curr.p1;
-                visited[{snap(curr.p1), snap(curr.p2)}] = true;
-
-                if (QLineF(snap(curr.p2), snap(startEdge.p1)).length() < EPSILON) {
-                    poly << curr.p2; // 닫기
-                    closed = true;
-                    break;
-                }
-
-                QPointF currVert = snap(curr.p2);
-                if (adjList.find(currVert) == adjList.end()) break;
-
-                const auto& outgoing = adjList[currVert];
-                if (outgoing.empty()) break;
-
-                double incomingRev = normalizeAngle(curr.angle + M_PI);
-                int nextIdx = -1;
-                for (size_t i = 0; i < outgoing.size(); ++i) {
-                    if (outgoing[i].angle > incomingRev + EPSILON) {
-                        nextIdx = i; break;
-                    }
-                }
-                if (nextIdx == -1) nextIdx = 0;
-
-                curr = outgoing[nextIdx];
-                steps++;
+    // 다음 변: 도착점에서 되돌아가는 변의 시계 방향 바로 앞 변 → 면이 왼쪽에 놓인 반시계 길
+    std::vector<int> next(from.size(), -1);
+    for (size_t v = 0; v < nv; ++v) {
+        std::sort(out[v].begin(), out[v].end(), lessOut);
+        const size_t m = out[v].size();
+        for (size_t k = 0; k < m; ++k)
+            next[size_t(out[v][k].half ^ 1)] = out[v][(k + m - 1) % m].half;
+    }
+    std::vector<int> walkOf(from.size(), -1);
+    for (size_t h0 = 0; h0 < from.size(); ++h0) {
+        if (walkOf[h0] >= 0)
+            continue;
+        std::vector<int> walk;
+        int h = int(h0);
+        while (walkOf[size_t(h)] < 0) {
+            walkOf[size_t(h)] = int(h0);
+            walk.push_back(h);
+            h = next[size_t(h)];
+        }
+        // 길을 같은 점에서 나눠 단순 고리들로 (왕복하는 다리 변은 면적 0 고리라 버려짐)
+        std::vector<int> path;                          // 지나온 꼭짓점
+        std::map<int, size_t> at;                       // 꼭짓점 → path 안 자리
+        std::vector<QPolygonF> loops;
+        const int first = from[size_t(walk[0])];
+        path.push_back(first);
+        at[first] = 0;
+        for (size_t k = 0; k < walk.size(); ++k) {
+            const int v = to[size_t(walk[k])];
+            const std::map<int, size_t>::iterator f = at.find(v);
+            if (f == at.end()) {
+                at[v] = path.size();
+                path.push_back(v);
+                continue;
             }
-
-            // 닫힌 폴리곤이며, 시계 반대방향(내부 영역)인 경우 등록
-            if (closed && getSignedArea(poly) < -EPSILON) {
-                internalFaces.push_back(poly);
+            const size_t s = f->second;
+            if (path.size() - s >= 3) {
+                QPolygonF loop;
+                for (size_t q = s; q < path.size(); ++q)
+                    loop << pool.pts[size_t(path[q])];
+                loop << loop.first();
+                loops.push_back(loop);
+            }
+            while (path.size() > s + 1) {
+                at.erase(path.back());
+                path.pop_back();
             }
         }
+        // 반시계 고리 = 바깥, 시계 고리 = 그 안의 구멍 (바깥 면의 길은 모두 시계 고리)
+        BoundaryFace face;
+        for (size_t k = 0; k < loops.size(); ++k) {
+            const double area = getSignedArea(loops[k]);
+            if (area > face.area) {
+                face.outer = loops[k];
+                face.area = area;
+            }
+        }
+        if (face.area <= EPSILON)
+            continue;
+        for (size_t k = 0; k < loops.size(); ++k)
+            if (getSignedArea(loops[k]) < -EPSILON)
+                face.holes << loops[k];
+        face.component = rootOf(parent, first);
+        faces.push_back(face);
     }
-
-    return internalFaces;
+    return faces;
 }
 
 QPainterPath AdvancedBoundaryFinder::findBoundaryPath(const QList<CadItem*> &items, const QPointF &point) {
     if (items.isEmpty()) return QPainterPath();
 
-    std::vector<QPointF> exactIntersections = getExactIntersections(items);
-    std::vector<EdgeSegment> segments = extractSegments(items);
-    std::vector<EdgeSegment> splitSegments = splitIntersectingSegments(segments, exactIntersections);
+    const std::vector<EdgeSegment> segments = extractSegments(items, getExactIntersections(items));
+    const std::vector<BoundaryFace> allFaces = findAllFaces(splitIntersectingSegments(segments));
 
-    std::vector<QPolygonF> allFaces = findAllFaces(splitSegments);
-
+    // 점을 둘러싼 가장 작은 공간
     int mainFaceIdx = -1;
     double minArea = 1e99;
-
-    for (size_t i = 0; i < allFaces.size(); ++i) { // 인덱스 기반 루프 유지
-        QPainterPath p;
-        p.addPolygon(allFaces[i]);
-        if (p.contains(point)) {
-            double area = std::abs(getSignedArea(allFaces[i]));
-            if (area < minArea) {
-                minArea = area;
-                mainFaceIdx = (int)i;
-            }
+    for (size_t i = 0; i < allFaces.size(); ++i) {
+        if (allFaces[i].area < minArea && allFaces[i].outer.containsPoint(point, Qt::OddEvenFill)) {
+            minArea = allFaces[i].area;
+            mainFaceIdx = (int)i;
         }
     }
-
     if (mainFaceIdx == -1) return QPainterPath();
 
+    const BoundaryFace& mainFace = allFaces[size_t(mainFaceIdx)];
     QPainterPath finalPath;
-    finalPath.addPolygon(allFaces[mainFaceIdx]);
-
-    for (size_t i = 0; i < allFaces.size(); ++i) {
-        if ((int)i == mainFaceIdx) continue;
-
-        const QPolygonF& face = allFaces[i];
-
-        bool sharesVertex = false;
-        for (int v1 = 0; v1 < face.size(); ++v1) {
-            QPointF p1 = snap(face[v1]);
-            for (int v2 = 0; v2 < allFaces[mainFaceIdx].size(); ++v2) {
-                QPointF p2 = snap(allFaces[mainFaceIdx][v2]);
-                if (QLineF(p1, p2).length() < EPSILON) {
-                    sharesVertex = true;
-                    break;
-                }
-            }
-            if (sharesVertex) break;
-        }
-
-        if (!sharesVertex) {
-            if (face.size() > 0 && finalPath.contains(face[0])) {
-                QPainterPath holePath;
-                holePath.addPolygon(face);
-                finalPath.addPath(holePath);
-            }
-        }
-    }
-
     finalPath.setFillRule(Qt::OddEvenFill);
+    finalPath.addPolygon(mainFace.outer);
+    for (int k = 0; k < mainFace.holes.size(); ++k)
+        finalPath.addPolygon(mainFace.holes.at(k));
+    const QPainterPath base = finalPath;
+
+    // 떨어진 섬 (이어지지 않은 다른 덩어리가 이 공간 안에 있음)
+    for (size_t i = 0; i < allFaces.size(); ++i) {
+        if (allFaces[i].component == mainFace.component)
+            continue;
+        if (base.contains(insidePoint(allFaces[i].outer)))
+            finalPath.addPolygon(allFaces[i].outer);
+    }
     return finalPath;
 }
 
 QPainterPath AdvancedBoundaryFinder::findBoundaryPathInRect(const QList<CadItem*> &items, const QRectF &rect) {
-    // [수정] 드래그 방향으로 인해 사각형의 width, height가 음수일 경우 예외가 발생하는 것을 방지
-    QRectF normRect = rect.normalized();
+    // 드래그 방향에 따라 폭·높이가 음수일 수 있음
+    const QRectF normRect = rect.normalized();
     if (normRect.isEmpty()) return QPainterPath();
 
     QPainterPath finalPath;
-    finalPath.addRect(normRect); // 베이스 경계는 정규화된 사각형 사용
-
-    if (items.isEmpty()) {
-        finalPath.setFillRule(Qt::OddEvenFill);
-        return finalPath;
-    }
-
-    std::vector<QPointF> exactIntersections = getExactIntersections(items);
-    std::vector<EdgeSegment> segments = extractSegments(items);
-    std::vector<EdgeSegment> splitSegments = splitIntersectingSegments(segments, exactIntersections);
-    std::vector<QPolygonF> allFaces = findAllFaces(splitSegments);
-
-    for (size_t i = 0; i < allFaces.size(); ++i) { // 인덱스 루프
-        const QPolygonF& face = allFaces[i];
-
-        if (face.size() > 0) {
-            QRectF faceRect = face.boundingRect();
-
-            // normRect 기반으로 확장된 영역 계산
-            QRectF expanded(normRect.adjusted(-EPSILON, -EPSILON, EPSILON, EPSILON));
-
-            bool isMainBoundary = (std::abs(faceRect.width() - normRect.width()) < EPSILON * 10 &&
-                                   std::abs(faceRect.height() - normRect.height()) < EPSILON * 10);
-
-            if (expanded.contains(faceRect) && !isMainBoundary) {
-                QPainterPath holePath;
-                holePath.addPolygon(face);
-                finalPath.addPath(holePath);
-            }
-        }
-    }
-
     finalPath.setFillRule(Qt::OddEvenFill);
+    finalPath.addRect(normRect);
+    if (items.isEmpty())
+        return finalPath;
+
+    const std::vector<EdgeSegment> segments = extractSegments(items, getExactIntersections(items));
+    const std::vector<BoundaryFace> allFaces = findAllFaces(splitIntersectingSegments(segments));
+    const QRectF expanded(normRect.adjusted(-EPSILON, -EPSILON, EPSILON, EPSILON));
+    for (size_t i = 0; i < allFaces.size(); ++i) {
+        const QRectF faceRect = allFaces[i].outer.boundingRect();
+        const bool isMainBoundary = (std::abs(faceRect.width() - normRect.width()) < EPSILON * 10 &&
+                                     std::abs(faceRect.height() - normRect.height()) < EPSILON * 10);
+        if (expanded.contains(faceRect) && !isMainBoundary)
+            finalPath.addPolygon(allFaces[i].outer);
+    }
     return finalPath;
 }

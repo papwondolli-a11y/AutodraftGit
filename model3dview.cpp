@@ -3,6 +3,7 @@
 
 #include <QMouseEvent>
 #include <QOpenGLShaderProgram>
+#include <QPainter>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
 #include <QtMath>
@@ -127,8 +128,10 @@ void Model3DView::setModel(const Model3D &model, bool resetCamera)
     }
     m_center = QPointF((minX + maxX) / 2.0, (minY + maxY) / 2.0);
     m_baseZ = minZ;
-    // 기계 부품만 있으면(건축 벽 없음) 도면과 같은 방향으로 세운다 — 바닥에 눕지 않게
-    m_standUp = m_model.solids.isEmpty() && !m_model.meshes.isEmpty();
+    // 세우기 = 보는 방향만 (Model3D::standUp, 도면마다 저장). 기계용은 부품 높이 가운데를 본다
+    m_standUp = m_model.standUp;
+    const bool mech = m_model.solids.isEmpty() && !m_model.meshes.isEmpty();
+    m_targetZ = !mech ? 0.0 : (m_standUp ? (maxY - minY) : (maxZ - minZ)) / 2.0;
     m_centerZ = (minZ + maxZ) / 2.0;
     m_baseY = minY;
     const double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
@@ -294,24 +297,37 @@ void Model3DView::rebuildMesh()
 // ── 카메라 ───────────────────────────────────────────────────────────────────
 void Model3DView::setPreset(Preset p)
 {
-    m_target = QVector3D(0.0f, 0.0f, 0.0f);
-    m_distance = m_radius * 2.4;
+    m_target = QVector3D(0.0f, 0.0f, float(m_targetZ));
+    // 세로 시야각 35° 에 모델 전체(반지름 m_radius 구)가 들어오는 거리 = R / sin(17.5°) ≈ 3.33 R
+    //   건축(벽)은 낮아서 2.4 R 로 충분, 기계 부품은 위아래가 잘리지 않게 전체
+    m_distance = m_radius * (m_model.meshes.isEmpty() ? 2.4 : 3.4);
+    // 도면 축 평면 → 카메라 방향 (세우면 도면 XY 가 화면 앞면이 된다)
+    if (p == PlaneXY)
+        p = m_standUp ? Front : Top;
+    else if (p == PlaneXZ)
+        p = m_standUp ? Top : Front;
+    else if (p == PlaneYZ)
+        p = Side;
+    const bool flat = !m_model.meshes.isEmpty();        // 기계용: 평면을 똑바로 봄 (도면과 같은 모습)
     switch (p) {
+    case PlaneXY:
+    case PlaneXZ:
+    case PlaneYZ:
     case Iso:
         m_yawDeg = -60.0;
         m_pitchDeg = 35.0;
         break;
     case Top:
         m_yawDeg = -90.0;
-        m_pitchDeg = 89.0;
+        m_pitchDeg = flat ? 89.9 : 89.0;
         break;
     case Front:
         m_yawDeg = -90.0;
-        m_pitchDeg = 5.0;
+        m_pitchDeg = flat ? 0.0 : 5.0;
         break;
     case Side:
         m_yawDeg = 0.0;
-        m_pitchDeg = 5.0;
+        m_pitchDeg = flat ? 0.0 : 5.0;
         break;
     }
     update();
@@ -407,6 +423,51 @@ void Model3DView::paintGL()
 
     m_program->release();
     glDisable(GL_DEPTH_TEST);
+
+    QPainter painter(this);
+    drawAxes(painter);
+}
+
+// 왼쪽 아래 축 표시: 도면 X(빨강)·Y(초록)·Z(파랑). 세우면 축도 함께 돌아가 Y 가 위를 가리킨다
+void Model3DView::drawAxes(QPainter &painter) const
+{
+    const double yaw = qDegreesToRadians(m_yawDeg), pitch = qDegreesToRadians(m_pitchDeg);
+    const QVector3D dir(float(std::cos(pitch) * std::cos(yaw)), float(std::cos(pitch) * std::sin(yaw)),
+                        float(std::sin(pitch)));        // 보는 사람 쪽
+    const QVector3D right = QVector3D::crossProduct(QVector3D(0.0f, 0.0f, 1.0f), dir).normalized();
+    const QVector3D upv = QVector3D::crossProduct(dir, right).normalized();
+    // 도면 축 → 보기 축 (toLocal 과 같은 회전)
+    const QVector3D axes[3] = {QVector3D(1.0f, 0.0f, 0.0f),
+                               m_standUp ? QVector3D(0.0f, 0.0f, 1.0f) : QVector3D(0.0f, 1.0f, 0.0f),
+                               m_standUp ? QVector3D(0.0f, -1.0f, 0.0f) : QVector3D(0.0f, 0.0f, 1.0f)};
+    const QColor cols[3] = {QColor(208, 48, 48), QColor(46, 139, 61), QColor(36, 96, 200)};
+    const QString names[3] = {QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Z")};
+    int order[3] = {0, 1, 2};                           // 먼 축부터 그림
+    for (int i = 0; i < 2; ++i)
+        for (int k = 0; k < 2 - i; ++k)
+            if (QVector3D::dotProduct(axes[order[k]], dir) > QVector3D::dotProduct(axes[order[k + 1]], dir))
+                std::swap(order[k], order[k + 1]);
+    painter.setRenderHint(QPainter::Antialiasing);
+    QFont font = painter.font();
+    font.setBold(true);
+    painter.setFont(font);
+    const QPointF o(64.0, height() - 64.0);
+    for (int i = 0; i < 3; ++i) {
+        const int a = order[i];
+        const QPointF v(QVector3D::dotProduct(axes[a], right), -QVector3D::dotProduct(axes[a], upv));
+        const double len = std::hypot(v.x(), v.y());
+        painter.setPen(QPen(cols[a], 2.5));
+        painter.setBrush(cols[a]);
+        QPointF t = o + v * 52.0;
+        if (len < 0.12) {                               // 보는 방향과 나란한 축: 점 + 이름을 옆에
+            painter.drawEllipse(o, 4.5, 4.5);
+            t = o + QPointF(-16.0, 16.0);
+        } else {
+            painter.drawLine(o, o + v * 38.0);
+            painter.drawEllipse(o + v * 38.0, 2.5, 2.5);
+        }
+        painter.drawText(QRectF(t.x() - 10.0, t.y() - 10.0, 20.0, 20.0), Qt::AlignCenter, names[a]);
+    }
 }
 
 // ── 마우스 ───────────────────────────────────────────────────────────────────

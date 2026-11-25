@@ -995,6 +995,21 @@ void appendRevolve(Model3D &model, MyGraphicsScene *scene, const QString &id, co
 }
 } // namespace
 
+namespace {
+const char *kStandUpKey = "MechView3D/StandUp";   // 도면 설정(doc_settings) — 도면 파일에 저장
+}
+
+bool MechModel3D::standUp(MyGraphicsScene *scene)
+{
+    return scene && scene->documentSettings()->value(QString::fromLatin1(kStandUpKey), false).toBool();
+}
+
+void MechModel3D::setStandUp(MyGraphicsScene *scene, bool on)
+{
+    if (scene)
+        scene->documentSettings()->setValue(QString::fromLatin1(kStandUpKey), on);
+}
+
 Model3D MechModel3D::build(MyGraphicsScene *scene)
 {
     Model3D model;
@@ -1181,6 +1196,7 @@ Model3D MechModel3D::build(MyGraphicsScene *scene)
                 break;
             }
     model.meshes << cutParts;
+    model.standUp = standUp(scene);
     return model;
 }
 

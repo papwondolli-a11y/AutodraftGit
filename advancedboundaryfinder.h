@@ -10,12 +10,18 @@
 class CadItem;
 class MyVector;
 
-// 분할된 선분을 나타내는 내부 구조체
+// 선분 (원·호는 잘게 나눈 현)
 struct EdgeSegment {
     QPointF p1;
     QPointF p2;
-    double angle;    // p1에서 p2로 향하는 각도 (-PI ~ PI)
-    double length;
+};
+
+// 닫힌 공간 하나: 바깥 고리 + 같은 덩어리(선이 이어진 도형) 안의 구멍 고리
+struct BoundaryFace {
+    QPolygonF outer;
+    QList<QPolygonF> holes;
+    int component = -1;      // 이어진 선 덩어리 번호 (다른 덩어리 = 떨어진 섬)
+    double area = 0.0;
 };
 
 class AdvancedBoundaryFinder {
@@ -25,17 +31,11 @@ public:
 
 private:
     static std::vector<QPointF> getExactIntersections(const QList<CadItem*> &items);
-    static std::vector<EdgeSegment> extractSegments(const QList<CadItem*> &items);
-    static std::vector<EdgeSegment> splitIntersectingSegments(const std::vector<EdgeSegment>& segments, const std::vector<QPointF>& exactIntersections = {});
+    static std::vector<EdgeSegment> extractSegments(const QList<CadItem*> &items, const std::vector<QPointF>& exactIntersections);
+    static std::vector<EdgeSegment> splitIntersectingSegments(const std::vector<EdgeSegment>& segments);
 
-    static std::vector<QPolygonF> findAllFaces(const std::vector<EdgeSegment>& edges);
+    static std::vector<BoundaryFace> findAllFaces(const std::vector<EdgeSegment>& edges);
     static double getSignedArea(const QPolygonF& poly);
-
-    // 유틸리티
-    static bool intersectLineSegments(const QPointF& a1, const QPointF& a2,
-                                      const QPointF& b1, const QPointF& b2,
-                                      QPointF& outIntersect);
-    static double normalizeAngle(double angle);
 };
 
 #endif // ADVANCEDBOUNDARYFINDER_H

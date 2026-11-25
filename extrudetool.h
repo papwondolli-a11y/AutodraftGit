@@ -2,6 +2,7 @@
 #define EXTRUDETOOL_H
 
 #include "abstracttool.h"
+#include "extrudetarget.h"
 
 #include <QDialog>
 #include <QList>
@@ -17,51 +18,49 @@ class QLineEdit;
 // ExtrudeTool — 메뉴 "3D 기계용 > 돌출" (명령 ext3d)
 //   ① 해치 명령처럼 공간 고르기: 사각 두 점 → 내부 공간 클릭(여러 곳, 엔터) 또는 [복합모양(B)]
 //      단면 회전체의 좌·우측면도에 그린 공간 (투상 원도 경계)
-//   ② 설정창: 이름 · 시작 거리(그 측면 쪽 부품 끝면에서) · 깊이 · [호스트에 합치기]
+//   ② 설정창: 대상 · 방향 · 이름 · 시작 · 깊이 · [합치기] (ExtrudeDialog — 도면에 대상 강조·방향 화살표 미리보기)
 //   → ExtrudeFeature 등록 → 3D·다른 투상도 갱신
 // ─────────────────────────────────────────────────────────────────────────────
-//   hostName 이 비면 "단독 돌출" 설정창: 이름 · 시작 Z · 깊이(두께) · [가운데 대칭]
+class QComboBox;
+class QGraphicsItem;
 class QLabel;
 
+// 돌출·파내기 설정창: 대상(어느 부품의 어느 뷰) · 방향(대상에 따라 정해짐, 읽기 전용) · 이름 · 시작 · 깊이 · 합치기/대칭/관통
+//   대상의 첫 항목 = 자동 판단값. 대상이나 값이 바뀌면 previewChanged → 도구가 도면 미리보기를 다시 그린다.
 class ExtrudeDialog : public QDialog {
     Q_OBJECT
 public:
-    //   plateBoss = 판의 측면도·보조 투상도 안 공간 → 그 면에 붙는 돌기 (시작 거리 없음)
-    ExtrudeDialog(const QString &hostName, const QString &viewName, QWidget *parent = nullptr, bool plateBoss = false);
+    ExtrudeDialog(MyGraphicsScene *scene, const QList<ExtrudeTarget> &targets, bool cut, QWidget *parent = nullptr);
+    ExtrudeTarget target() const;
+    ExtrudeValues values() const;   // 시작·깊이·대칭·관통
     QString partName() const;
-    double offset() const;
-    double depth() const;
     bool merge() const;
-    bool symmetric() const;   // 단독 돌출: 시작 Z 를 가운데로
-    // 단독 돌출: 시작 Z 를 미리 채움 (공간 아래 판의 윗면 — 판 위에 올리기), note = 설명 한 줄
-    void setStartZ(double z, const QString &note);
+
+signals:
+    void previewChanged();
+
+private slots:
+    void onTargetChanged(int index);
+    void onValueChanged();
 
 private:
-    bool m_standalone = false;
-    bool m_plateBoss = false;
+    QString defaultName(const ExtrudeTarget &t) const;
+
+    MyGraphicsScene *m_scene = nullptr;
+    QList<ExtrudeTarget> m_targets;
+    bool m_cut = false;
+    int m_lastType = -1;             // 바로 앞 대상 종류 (종류가 바뀔 때만 시작값을 기본값으로)
+    QString m_autoName;              // 자동으로 넣은 이름 (사용자가 고쳤으면 그대로 둠)
+    QComboBox *m_target = nullptr;
+    QLabel *m_direction = nullptr;
+    QLabel *m_warning = nullptr;     // 공간이 대상 측면도와 떨어져 있음
     QLineEdit *m_name = nullptr;
+    QLabel *m_offsetLabel = nullptr; // 시작 거리 ↔ 시작 Z
     QDoubleSpinBox *m_offset = nullptr;
+    QLabel *m_startNote = nullptr;   // 시작 Z 자동 설명
     QDoubleSpinBox *m_depth = nullptr;
     QCheckBox *m_merge = nullptr;
     QCheckBox *m_symmetric = nullptr;
-    QLabel *m_startNote = nullptr;   // 시작 Z 자동 설명 (단독 돌출)
-};
-
-// 파내기 설정창: 이름 · (회전체 홈이면 시작 거리) · 깊이 · [관통](판만)
-class CutDialog : public QDialog {
-    Q_OBJECT
-public:
-    enum Mode { PlateFace = 0, PlateFront = 1, RevolveSide = 2 };
-    CutDialog(Mode mode, const QString &hostName, const QString &viewName, QWidget *parent = nullptr);
-    QString partName() const;
-    double offset() const;
-    double depth() const;
-    bool through() const;
-
-private:
-    QLineEdit *m_name = nullptr;
-    QDoubleSpinBox *m_offset = nullptr;
-    QDoubleSpinBox *m_depth = nullptr;
     QCheckBox *m_through = nullptr;
 };
 
@@ -80,12 +79,17 @@ public:
 protected:
     bool m_cut = false;      // 파내기 도구 (CutTool)
 
+private slots:
+    void updatePreview();    // 설정창의 대상·값이 바뀜 → 도면 미리보기 다시
+
 private:
     enum State { AreaBox1, AreaBox2, AreaPick };
 
     void showPrompt();
     void finishArea(bool complexShape);
-    void finishCut();        // 파내기: 판 측면·보조 뷰 / 판 정면 / 회전체 측면도 → 등록
+    // 같은 공간을 다른 대상으로 돌출한 옛 기록을 어떻게 할지 물어봄. false = 취소. remove = 지울 기록
+    bool askOldRecords(const ExtrudeTarget &t, QWidget *parent, QStringList &remove);
+    void clearPreview();
     void cancelTool();
 
     State m_state = AreaBox1;
@@ -93,6 +97,8 @@ private:
     QRectF m_box;
     QList<QPointF> m_picks;
     QPainterPath m_region;
+    ExtrudeDialog *m_dialog = nullptr;        // 설정창이 열려 있는 동안만
+    QList<QGraphicsItem *> m_preview;         // 임시 미리보기 도형
 };
 
 // CutTool — 메뉴 "3D 기계용 > 파내기" (명령 cut3d): 돌출과 같은 공간 고르기, 재료를 뺀다

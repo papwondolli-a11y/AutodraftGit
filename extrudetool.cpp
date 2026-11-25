@@ -1,5 +1,4 @@
 #include "extrudetool.h"
-#include "plateview.h"
 
 #include "commanddock.h"
 #include "extrudefeature.h"
@@ -12,6 +11,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -19,85 +19,132 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QUndoStack>
 #include <QVBoxLayout>
 
 // ── 설정창 ──
-ExtrudeDialog::ExtrudeDialog(const QString &hostName, const QString &viewName, QWidget *parent, bool plateBoss)
-    : QDialog(parent)
+ExtrudeDialog::ExtrudeDialog(MyGraphicsScene *scene, const QList<ExtrudeTarget> &targets, bool cut, QWidget *parent)
+    : QDialog(parent), m_scene(scene), m_targets(targets), m_cut(cut)
 {
-    setWindowTitle(tr("돌출"));
-    m_standalone = hostName.isEmpty();
-    m_plateBoss = plateBoss && !m_standalone;
+    setWindowTitle(cut ? tr("파내기") : tr("돌출"));
     QVBoxLayout *lay = new QVBoxLayout(this);
-    if (m_plateBoss)
-        lay->addWidget(new QLabel(tr("'%1'의 %2에 그린 공간을 그 면에서 바깥(보는 쪽)으로 돌출해 돌기를 붙입니다.\n"
-                                     "시작 = 그 공간 아래 판 표면, 깊이 = 표면(비스듬하면 가장 앞)에서 나온 길이.")
-                                      .arg(hostName, viewName),
-                                  this));
-    else if (m_standalone)
-        lay->addWidget(new QLabel(tr("고른 공간을 도면에 수직(보는 쪽 +Z)으로 돌출해 판·블록 부품을 만듭니다.\n"
-                                     "공간 안의 닫힌 모양은 관통 구멍, 공간 안의 구멍R·구멍P 는 앞면에서 파는 구멍이 됩니다.\n"
-                                     "회전체·축과 맞출 때: 축선은 Z = 0 입니다."),
-                                  this));
-    else
-        lay->addWidget(new QLabel(tr("'%1'의 %2에 그린 공간을 축 방향으로 돌출합니다.\n시작 = 이 측면 쪽 '%1' 끝면에서 안쪽으로.")
-                                      .arg(hostName, viewName),
-                                  this));
     QFormLayout *form = new QFormLayout();
-    m_name = new QLineEdit(m_standalone ? tr("판") : (m_plateBoss ? tr("돌기") : tr("받침대")), this);
+    // 대상 — 첫 항목이 자동 판단값
+    m_target = new QComboBox(this);
+    for (int i = 0; i < m_targets.size(); ++i)
+        m_target->addItem(i == 0 ? tr("%1 (자동)").arg(m_targets.at(i).label()) : m_targets.at(i).label());
+    m_direction = new QLabel(this);
+    m_direction->setTextFormat(Qt::RichText);
+    m_warning = new QLabel(tr("⚠ 고른 공간이 이 측면도와 떨어져 있습니다. 대상이 맞는지 확인하세요."), this);
+    m_warning->setStyleSheet(QStringLiteral("color:#c06000;"));
+    m_name = new QLineEdit(this);
+    m_offsetLabel = new QLabel(this);
     m_offset = new QDoubleSpinBox(this);
-    m_offset->setRange(-10000.0, 10000.0);
+    m_offset->setRange(cut ? 0.0 : -10000.0, 10000.0);
     m_offset->setDecimals(2);
-    m_offset->setValue(0.0);
+    m_startNote = new QLabel(this);
     m_depth = new QDoubleSpinBox(this);
     m_depth->setRange(0.01, 10000.0);
     m_depth->setDecimals(2);
-    m_depth->setValue(10.0);
-    m_merge = new QCheckBox(tr("'%1'에 합치기 (한 덩어리)").arg(hostName), this);
+    m_depth->setValue(cut ? 5.0 : 10.0);
+    m_merge = new QCheckBox(this);
     m_merge->setChecked(true);
     m_symmetric = new QCheckBox(tr("시작 Z 를 가운데로 (앞뒤 대칭)"), this);
+    m_through = new QCheckBox(tr("관통 (반대쪽 면까지)"), this);
+    form->addRow(tr("대상"), m_target);
+    form->addRow(tr("방향"), m_direction);
+    form->addRow(m_warning);
     form->addRow(tr("이름"), m_name);
-    if (m_standalone) {
-        form->addRow(tr("시작 Z (mm, 보는 쪽 +)"), m_offset);
-        m_startNote = new QLabel(this);
-        m_startNote->setVisible(false);
-        form->addRow(QString(), m_startNote);
-        form->addRow(tr("깊이 · 두께 (mm)"), m_depth);
-    } else if (m_plateBoss) {
-        form->addRow(tr("깊이 (면에서, mm)"), m_depth);
-        m_offset->setVisible(false);
-    } else {
-        form->addRow(tr("시작 거리 (끝면에서, mm)"), m_offset);
-        form->addRow(tr("깊이 (mm)"), m_depth);
-    }
+    form->addRow(m_offsetLabel, m_offset);
+    form->addRow(m_startNote);
+    form->addRow(tr("깊이 (mm)"), m_depth);
     lay->addLayout(form);
-    lay->addWidget(m_standalone ? m_symmetric : m_merge);
-    m_merge->setVisible(!m_standalone);
-    m_symmetric->setVisible(m_standalone);
+    lay->addWidget(m_merge);
+    lay->addWidget(m_symmetric);
+    lay->addWidget(m_through);
     QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     lay->addWidget(bb);
+    onTargetChanged(0);
+    connect(m_target, &QComboBox::currentIndexChanged, this, &ExtrudeDialog::onTargetChanged);
+    connect(m_offset, &QDoubleSpinBox::valueChanged, this, &ExtrudeDialog::onValueChanged);
+    connect(m_depth, &QDoubleSpinBox::valueChanged, this, &ExtrudeDialog::onValueChanged);
+    connect(m_symmetric, &QCheckBox::toggled, this, &ExtrudeDialog::onValueChanged);
+    connect(m_through, &QCheckBox::toggled, this, &ExtrudeDialog::onValueChanged);
+    connect(m_through, &QCheckBox::toggled, m_depth, &QWidget::setDisabled);
+}
+
+ExtrudeTarget ExtrudeDialog::target() const
+{
+    const int i = m_target->currentIndex();
+    return (i >= 0 && i < m_targets.size()) ? m_targets.at(i) : ExtrudeTarget();
+}
+
+QString ExtrudeDialog::defaultName(const ExtrudeTarget &t) const
+{
+    if (m_cut)
+        return tr("파내기");
+    if (t.type == ExtrudeTarget::None)
+        return tr("판");
+    return t.type == ExtrudeTarget::PlateFace ? tr("돌기") : tr("받침대");
+}
+
+// 대상에 맞춰 입력 칸 전환: 회전체 = 시작 거리 + 합치기, 판의 면 = 깊이 + 합치기, 없음 = 시작 Z + 대칭
+void ExtrudeDialog::onTargetChanged(int)
+{
+    const ExtrudeTarget t = target();
+    const bool none = t.type == ExtrudeTarget::None;
+    const bool side = t.type == ExtrudeTarget::RevolveSide;
+    m_direction->setText(ExtrudeTargets::directionText(m_scene, t, m_cut));
+    m_warning->setVisible(t.away);
+    if (m_name->text().isEmpty() || m_name->text() == m_autoName) {   // 사용자가 고친 이름은 유지
+        m_autoName = defaultName(t);
+        m_name->setText(m_autoName);
+    }
+    if (int(t.type) != m_lastType) {                    // 시작 거리와 시작 Z 는 뜻이 달라 종류가 바뀌면 기본값
+        m_offset->setValue(none ? t.startZ : 0.0);
+        m_lastType = int(t.type);
+    }
+    m_offsetLabel->setText(none ? tr("시작 Z (mm, 보는 쪽 +)") : tr("시작 거리 (끝면에서, mm)"));
+    m_offsetLabel->setVisible(none || side);
+    m_offset->setVisible(none || side);
+    m_startNote->setText(t.startNote);
+    m_startNote->setVisible(none && !t.startNote.isEmpty());
+    m_merge->setText(tr("'%1'에 합치기 (한 덩어리)").arg(t.hostName));
+    m_merge->setVisible(!none && !m_cut);
+    m_symmetric->setVisible(none);
+    m_through->setVisible(m_cut && !side);
+    if (side && m_through->isChecked())
+        m_through->setChecked(false);                   // 회전체 홈에는 관통이 없음 (깊이 칸도 다시 켜짐)
+    adjustSize();
+    emit previewChanged();
+}
+
+void ExtrudeDialog::onValueChanged() { emit previewChanged(); }
+
+ExtrudeValues ExtrudeDialog::values() const
+{
+    const ExtrudeTarget t = target();
+    ExtrudeValues v;
+    v.offset = (t.type == ExtrudeTarget::None || t.type == ExtrudeTarget::RevolveSide) ? m_offset->value() : 0.0;
+    v.depth = m_depth->value();
+    v.symmetric = t.type == ExtrudeTarget::None && m_symmetric->isChecked();
+    v.through = m_cut && t.type != ExtrudeTarget::RevolveSide && m_through->isChecked();
+    v.cut = m_cut;
+    return v;
 }
 
 QString ExtrudeDialog::partName() const
 {
     const QString n = m_name->text().trimmed();
-    return n.isEmpty() ? tr("돌출") : n;
+    return n.isEmpty() ? (m_cut ? tr("파내기") : tr("돌출")) : n;
 }
-double ExtrudeDialog::offset() const { return m_offset->value(); }
-double ExtrudeDialog::depth() const { return m_depth->value(); }
-bool ExtrudeDialog::merge() const { return !m_standalone && m_merge->isChecked(); }
-bool ExtrudeDialog::symmetric() const { return m_standalone && m_symmetric->isChecked(); }
 
-void ExtrudeDialog::setStartZ(double z, const QString &note)
+bool ExtrudeDialog::merge() const
 {
-    m_offset->setValue(z);
-    if (m_startNote) {
-        m_startNote->setText(note);
-        m_startNote->setVisible(!note.isEmpty());
-    }
+    return !m_cut && target().type != ExtrudeTarget::None && m_merge->isChecked();
 }
 
 namespace {
@@ -107,55 +154,6 @@ QPointF regionProbe(const QList<QPointF> &picks, const QPainterPath &region)
     return picks.isEmpty() ? region.boundingRect().center() : picks.first();
 }
 } // namespace
-
-// ── 파내기 설정창 ──
-CutDialog::CutDialog(Mode mode, const QString &hostName, const QString &viewName, QWidget *parent) : QDialog(parent)
-{
-    setWindowTitle(tr("파내기"));
-    QVBoxLayout *lay = new QVBoxLayout(this);
-    QString text;
-    if (mode == PlateFace)
-        text = tr("'%1'의 %2에 그린 공간을 그 면에서 안쪽으로 파냅니다.\n깊이 = 공간 아래 판 표면(비스듬하면 가장 깊은 곳)에서.")
-                   .arg(hostName, viewName);
-    else if (mode == PlateFront)
-        text = tr("'%1' 정면 안에 그린 공간을 앞면에서 −Z 로 파냅니다 (포켓).").arg(hostName);
-    else
-        text = tr("'%1'의 %2에 그린 공간을 축 방향으로 파냅니다 (홈).\n시작 = 이 측면 쪽 끝면에서 안쪽으로.").arg(hostName, viewName);
-    lay->addWidget(new QLabel(text, this));
-    QFormLayout *form = new QFormLayout();
-    m_name = new QLineEdit(tr("파내기"), this);
-    m_offset = new QDoubleSpinBox(this);
-    m_offset->setRange(0.0, 10000.0);
-    m_offset->setDecimals(2);
-    m_depth = new QDoubleSpinBox(this);
-    m_depth->setRange(0.01, 10000.0);
-    m_depth->setDecimals(2);
-    m_depth->setValue(5.0);
-    m_through = new QCheckBox(tr("관통 (반대쪽 면까지)"), this);
-    form->addRow(tr("이름"), m_name);
-    if (mode == RevolveSide)
-        form->addRow(tr("시작 거리 (끝면에서, mm)"), m_offset);
-    else
-        m_offset->setVisible(false);
-    form->addRow(tr("깊이 (mm)"), m_depth);
-    lay->addLayout(form);
-    lay->addWidget(m_through);
-    m_through->setVisible(mode != RevolveSide);
-    QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(m_through, &QCheckBox::toggled, m_depth, &QWidget::setDisabled);
-    lay->addWidget(bb);
-}
-
-QString CutDialog::partName() const
-{
-    const QString n = m_name->text().trimmed();
-    return n.isEmpty() ? tr("파내기") : n;
-}
-double CutDialog::offset() const { return m_offset->value(); }
-double CutDialog::depth() const { return m_depth->value(); }
-bool CutDialog::through() const { return m_through->isVisible() && m_through->isChecked(); }
 
 // ── 도구 ──
 ExtrudeTool::ExtrudeTool(QObject *parent) : AbstractTool(parent) {}
@@ -181,6 +179,7 @@ void ExtrudeTool::activate(MyGraphicsScene *scene)
 
 void ExtrudeTool::deactivate()
 {
+    clearPreview();
     if (m_scene) {
         m_scene->setGhostPath(QPainterPath(), false);
         m_scene->clearOverlay();
@@ -208,6 +207,7 @@ void ExtrudeTool::showPrompt()
 
 void ExtrudeTool::cancelTool()
 {
+    clearPreview();
     if (m_scene) {
         m_scene->setGhostPath(QPainterPath(), false);
         m_scene->clearOverlay();
@@ -334,166 +334,110 @@ void ExtrudeTool::finishArea(bool complexShape)
         cancelTool();
         return;
     }
-    if (m_cut) {
-        finishCut();
-        return;
-    }
-    // 판의 측면도·보조 투상도 안 → 그 면에 붙는 돌기
-    {
-        QString plate;
-        PlateView::FaceView fv;
-        if (PlateView::viewAt(m_scene, m_region.boundingRect().center(), plate, fv)) {
-            const QString plateName = m_scene->symbolRegistry()->symbolInfo(plate).name;
-            ExtrudeDialog bdlg(plateName, ProjectionView::kindName(fv.kind), parent, true);
-            if (bdlg.exec() != QDialog::Accepted) {
-                cancelTool();
-                return;
-            }
-            QUndoStack *bundo = ctx ? ctx->undoStack() : nullptr;
-            if (bundo)
-                bundo->beginMacro(tr("돌출"));
-            QString berr;
-            const QString buuid = ExtrudeFeature::registerPlateBoss(m_scene, bundo, plate, fv.viewId, fv.kind, m_box,
-                                                                    m_picks, m_region, bdlg.partName(), bdlg.depth(),
-                                                                    bdlg.merge(), &berr);
-            if (!buuid.isEmpty())
-                ProjectionView::regeneratePart(ctx, m_scene, plate);   // 다른 투상도에 돌기 외형, 정면 기록 자동
-            if (bundo)
-                bundo->endMacro();
-            if (buuid.isEmpty())
-                QMessageBox::warning(parent, tr("돌출"), berr);
-            else if (ctx && ctx->commandDock())
-                ctx->commandDock()->logMessage(
-                    tr("'%1' 돌기 → '%2' 의 면 — 투상도 갱신. 3D 는 부품 3D 보기 [새로고침].").arg(bdlg.partName(), plateName),
-                    CommandDock::Info);
-            cancelTool();
-            return;
-        }
-    }
-    QString host, viewId;
-    int viewKind = ProjectionView::Left;
-    if (!ExtrudeFeature::findHostView(m_scene, m_region, host, viewId, viewKind)) {
-        // 회전체 측면도 근처가 아니면 단독 돌출 (판·블록)
-        ExtrudeDialog sdlg(QString(), QString(), parent);
-        // 이미 돌출된 판 위에 그린 공간이면 시작 Z = 그 판(겹치면 가장 앞)의 윗면 — 판 위에 올라가도록 자동
-        const QString below = PlateView::plateAt(m_scene, regionProbe(m_picks, m_region), true);
-        ExtrudeInfo bi;
-        if (!below.isEmpty() && ExtrudeFeature::resolve(m_scene, below, bi))
-            sdlg.setStartZ(bi.x1, tr("※ 아래 판 '%1' 윗면 Z = %2 자동 적용").arg(bi.name).arg(bi.x1));
-        if (sdlg.exec() != QDialog::Accepted) {
-            cancelTool();
-            return;
-        }
-        QUndoStack *sundo = ctx ? ctx->undoStack() : nullptr;
-        if (sundo)
-            sundo->beginMacro(tr("돌출"));
-        QString serr;
-        const QString suuid = ExtrudeFeature::registerStandalone(m_scene, sundo, m_box, m_picks, m_region,
-                                                                 sdlg.partName(), sdlg.offset(), sdlg.depth(),
-                                                                 sdlg.symmetric(), &serr);
-        if (sundo)
-            sundo->endMacro();
-        if (suuid.isEmpty())
-            QMessageBox::warning(parent, tr("돌출"), serr);
-        else if (ctx && ctx->commandDock())
-            ctx->commandDock()->logMessage(
-                tr("'%1' 단독 돌출 (두께 %2) — 3D 는 부품 3D 보기. 공간 안에 구멍R·구멍P 를 놓으면 구멍이 됩니다.")
-                    .arg(sdlg.partName())
-                    .arg(sdlg.depth()),
-                CommandDock::Info);
-        cancelTool();
-        return;
-    }
-    const QString hostName = m_scene->symbolRegistry()->symbolInfo(host).name;
-    ExtrudeDialog dlg(hostName, ProjectionView::kindName(viewKind), parent);
-    if (dlg.exec() != QDialog::Accepted) {
-        cancelTool();
-        return;
-    }
-    QUndoStack *undo = ctx ? ctx->undoStack() : nullptr;
-    if (undo)
-        undo->beginMacro(tr("돌출"));
-    QString err;
-    const QString uuid = ExtrudeFeature::registerExtrude(m_scene, undo, host, viewId, viewKind, m_box, m_picks,
-                                                         m_region, dlg.partName(), dlg.offset(), dlg.depth(),
-                                                         dlg.merge(), &err);
-    if (!uuid.isEmpty()) {
-        ProjectionView::ensureFrontView(ctx, m_scene, host);
-        ProjectionView::regeneratePart(ctx, m_scene, host);
-    }
-    if (undo)
-        undo->endMacro();
-    if (uuid.isEmpty())
-        QMessageBox::warning(parent, tr("돌출"), err);
-    else if (ctx && ctx->commandDock())
-        ctx->commandDock()->logMessage(tr("'%1' 돌출 — 투상도 갱신. 3D 는 부품 3D 보기 [새로고침].").arg(dlg.partName()),
-                                       CommandDock::Info);
-    cancelTool();
-}
-
-void ExtrudeTool::finishCut()
-{
-    IAppContext *ctx = getContext();
-    QWidget *parent = QApplication::activeWindow();
-    // 공간 안쪽 대표 점 (오목한 공간이면 경계 사각 가운데가 공간 밖일 수 있어 고른 점 우선)
-    const QPointF center = regionProbe(m_picks, m_region);
-    QString host, viewId, viewName;
-    int viewKind = ProjectionView::Left;
-    int mode = -1;
-    PlateView::FaceView fv;
-    if (PlateView::viewAt(m_scene, center, host, fv)) {
-        mode = CutDialog::PlateFace;
-        viewId = fv.viewId;
-        viewKind = fv.kind;
-        viewName = ProjectionView::kindName(fv.kind);
-    } else {
-        // 판이 겹쳐 있으면 가장 앞(윗면 Z 가 큰) 판 → 그 판 윗면에서 파 들어감 (PlateView::plateAt)
-        host = PlateView::plateAt(m_scene, center, true);
-        if (!host.isEmpty()) {
-            mode = CutDialog::PlateFront;
-            viewName = tr("정면");
-        } else if (ExtrudeFeature::findHostView(m_scene, m_region, host, viewId, viewKind)) {
-            mode = CutDialog::RevolveSide;
-            viewName = ProjectionView::kindName(viewKind);
-        }
-    }
-    if (mode < 0) {
-        QMessageBox::warning(parent, tr("파내기"),
+    // 대상 후보: 첫 항목 = 자동 판단값
+    const QString title = m_cut ? tr("파내기") : tr("돌출");
+    const QPointF probe = regionProbe(m_picks, m_region);
+    const QList<ExtrudeTarget> targets = m_cut ? ExtrudeTargets::forCut(m_scene, m_region, probe)
+                                               : ExtrudeTargets::forExtrude(m_scene, m_region, probe);
+    if (targets.isEmpty()) {
+        QMessageBox::warning(parent, title,
                              tr("파낼 부품을 찾지 못했습니다.\n판의 정면·측면도·보조 투상도, 또는 회전체 측면도 안에 닫힌 공간을 그리세요."));
         cancelTool();
         return;
     }
-    const QString hostName = m_scene->symbolRegistry()->symbolInfo(host).name;
-    CutDialog dlg(CutDialog::Mode(mode), hostName, viewName, parent);
-    if (dlg.exec() != QDialog::Accepted) {
+    ExtrudeDialog dlg(m_scene, targets, m_cut, parent);
+    m_dialog = &dlg;
+    connect(&dlg, &ExtrudeDialog::previewChanged, this, &ExtrudeTool::updatePreview);
+    updatePreview();
+    QStringList oldRecords;
+    ExtrudeTarget t;
+    bool ok = dlg.exec() == QDialog::Accepted;
+    if (ok) {
+        t = dlg.target();
+        ok = askOldRecords(t, parent, oldRecords);
+    }
+    m_dialog = nullptr;
+    clearPreview();
+    if (!ok) {
         cancelTool();
         return;
     }
+    const ExtrudeValues v = dlg.values();
     QUndoStack *undo = ctx ? ctx->undoStack() : nullptr;
     if (undo)
-        undo->beginMacro(tr("파내기"));
+        undo->beginMacro(title);
     QString err, uuid;
-    if (mode == CutDialog::PlateFace)
-        uuid = ExtrudeFeature::registerPlateBoss(m_scene, undo, host, viewId, viewKind, m_box, m_picks, m_region,
-                                                 dlg.partName(), dlg.depth(), false, &err, true, dlg.through());
-    else if (mode == CutDialog::PlateFront)
-        uuid = ExtrudeFeature::registerPlateFrontCut(m_scene, undo, host, m_box, m_picks, m_region, dlg.partName(),
-                                                     dlg.depth(), dlg.through(), &err);
+    if (t.type == ExtrudeTarget::PlateFace)
+        uuid = ExtrudeFeature::registerPlateBoss(m_scene, undo, t.host, t.viewId, t.viewKind, m_box, m_picks, m_region,
+                                                 dlg.partName(), v.depth, dlg.merge(), &err, m_cut, v.through);
+    else if (t.type == ExtrudeTarget::PlateFront)
+        uuid = ExtrudeFeature::registerPlateFrontCut(m_scene, undo, t.host, m_box, m_picks, m_region, dlg.partName(),
+                                                     v.depth, v.through, &err);
+    else if (t.type == ExtrudeTarget::RevolveSide)
+        uuid = ExtrudeFeature::registerExtrude(m_scene, undo, t.host, t.viewId, t.viewKind, m_box, m_picks, m_region,
+                                               dlg.partName(), v.offset, v.depth, dlg.merge(), &err, m_cut);
     else
-        uuid = ExtrudeFeature::registerExtrude(m_scene, undo, host, viewId, viewKind, m_box, m_picks, m_region,
-                                               dlg.partName(), dlg.offset(), dlg.depth(), false, &err, true);
-    if (!uuid.isEmpty()) {
-        if (mode == CutDialog::RevolveSide)
-            ProjectionView::ensureFrontView(ctx, m_scene, host);
-        ProjectionView::regeneratePart(ctx, m_scene, host);
+        uuid = ExtrudeFeature::registerStandalone(m_scene, undo, m_box, m_picks, m_region, dlg.partName(), v.offset,
+                                                  v.depth, v.symmetric, &err);
+    // 새 돌출이 만들어진 뒤에만 옛 기록을 지움
+    for (int i = 0; !uuid.isEmpty() && i < oldRecords.size(); ++i)
+        ExtrudeTargets::removeRecord(ctx, m_scene, oldRecords.at(i));
+    if (!uuid.isEmpty() && t.type != ExtrudeTarget::None) {
+        if (t.type == ExtrudeTarget::RevolveSide)
+            ProjectionView::ensureFrontView(ctx, m_scene, t.host);
+        ProjectionView::regeneratePart(ctx, m_scene, t.host);   // 다른 투상도에 돌출·파낸 모서리
     }
     if (undo)
         undo->endMacro();
-    if (uuid.isEmpty())
-        QMessageBox::warning(parent, tr("파내기"), err);
-    else if (ctx && ctx->commandDock())
-        ctx->commandDock()->logMessage(tr("'%1' 파내기 → '%2' — 투상도 갱신. 3D 는 부품 3D 보기 [새로고침] (Blender 에서 빼기).")
-                                           .arg(dlg.partName(), hostName),
-                                       CommandDock::Info);
+    if (uuid.isEmpty()) {
+        QMessageBox::warning(parent, title, err);
+    } else if (ctx && ctx->commandDock()) {
+        QString msg;
+        if (t.type == ExtrudeTarget::None)
+            msg = tr("'%1' 단독 돌출 (두께 %2) — 3D 는 부품 3D 보기. 공간 안에 구멍R·구멍P 를 놓으면 구멍이 됩니다.")
+                      .arg(dlg.partName())
+                      .arg(v.depth);
+        else if (m_cut)
+            msg = tr("'%1' 파내기 → '%2' — 투상도 갱신. 3D 는 부품 3D 보기 [새로고침] (Blender 에서 빼기).")
+                      .arg(dlg.partName(), t.label());
+        else
+            msg = tr("'%1' 돌출 → '%2' — 투상도 갱신. 3D 는 부품 3D 보기 [새로고침].").arg(dlg.partName(), t.label());
+        ctx->commandDock()->logMessage(msg, CommandDock::Info);
+    }
     cancelTool();
+}
+
+// 같은 공간을 다른 대상으로 돌출한 옛 기록: 지우기 / 둘 다 두기 / 취소
+bool ExtrudeTool::askOldRecords(const ExtrudeTarget &t, QWidget *parent, QStringList &remove)
+{
+    const QStringList old = ExtrudeTargets::otherRecords(m_scene, m_region, t, m_cut);
+    if (old.isEmpty())
+        return true;
+    QStringList lines;
+    for (int i = 0; i < old.size(); ++i)
+        lines << QStringLiteral("· ") + ExtrudeTargets::recordLabel(m_scene, old.at(i));
+    QMessageBox box(QMessageBox::Question, m_cut ? tr("파내기") : tr("돌출"),
+                    tr("같은 공간으로 만든 것이 이미 있습니다.\n%1\n\n옛것을 지우고 새로 만들까요?").arg(lines.join(QLatin1Char('\n'))),
+                    QMessageBox::NoButton, parent);
+    QPushButton *del = box.addButton(tr("옛것 지우기"), QMessageBox::AcceptRole);
+    QPushButton *keep = box.addButton(tr("둘 다 두기"), QMessageBox::ActionRole);
+    QPushButton *cancel = box.addButton(tr("취소"), QMessageBox::RejectRole);
+    box.setDefaultButton(del);
+    box.setEscapeButton(cancel);
+    box.exec();
+    if (box.clickedButton() == del)
+        remove = old;
+    return box.clickedButton() == del || box.clickedButton() == keep;
+}
+
+void ExtrudeTool::updatePreview()
+{
+    clearPreview();
+    if (m_scene && m_dialog)
+        m_preview = ExtrudeTargets::addPreview(m_scene, m_dialog->target(), m_region, m_dialog->values());
+}
+
+void ExtrudeTool::clearPreview()
+{
+    ExtrudeTargets::removePreview(m_scene, m_preview);
 }

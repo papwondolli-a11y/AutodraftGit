@@ -280,6 +280,7 @@ SOURCES += \
     projectionviewtool.cpp \
     extrudefeature.cpp \
     extrudetool.cpp \
+    extrudetarget.cpp \
     depthmovetool.cpp \
     mech3dviewtool.cpp \
     holefeature.cpp \
@@ -614,6 +615,7 @@ HEADERS += \
     projectionviewtool.h \
     extrudefeature.h \
     extrudetool.h \
+    extrudetarget.h \
     depthmovetool.h \
     mech3dviewtool.h \
     holefeature.h \
