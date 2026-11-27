@@ -46,6 +46,8 @@ public:
   std::vector<MyVector> samplePoints(int segments = 180) const;
   // 시작/끝 매개각 정규화 (start ∈ [0,2π), end ∈ (start, start+2π])
   void normalizeParams();
+  // 선분 p0→p1 과의 교점 (정확한 해석해, 선분 끝이 타원 위에 닿은 경우 포함)
+  std::vector<MyVector> intersectSegment(const MyVector &p0, const MyVector &p1) const;
 };
 
 #endif // MYELLIPSE_H

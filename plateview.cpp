@@ -963,7 +963,7 @@ QList<ExtrudeInfo> PlateView::bosses(MyGraphicsScene *scene, const QString &plat
     return out;
 }
 
-QString PlateView::plateAt(MyGraphicsScene *scene, const QPointF &pos, bool outerOnly)
+QString PlateView::plateAt(MyGraphicsScene *scene, const QPointF &pos, bool outerOnly, const QStringList &skip)
 {
     if (!scene)
         return QString();
@@ -975,6 +975,8 @@ QString PlateView::plateAt(MyGraphicsScene *scene, const QPointF &pos, bool oute
     for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
         if (it.value().type != QLatin1String("MechExtrude") || !it.value().props.value(QStringLiteral("Standalone")).toBool())
             continue;
+        if (skip.contains(it.key()))
+            continue;                                   // 부르는 쪽이 뺀 판
         ExtrudeInfo ei;
         QPointF a0, ref;
         if (!frame(scene, it.key(), ei, a0, ref))
@@ -983,6 +985,8 @@ QString PlateView::plateAt(MyGraphicsScene *scene, const QPointF &pos, bool oute
         for (int r = 0; r < ei.rings.size(); ++r)
             if (!outerOnly || ringSigned(ei.rings.at(r)) > 0.0)
                 rs << ei.rings.at(r);
+        if (ei.boolRole == ExtrudeInfo::BoolConsumed || ei.boolRole == ExtrudeInfo::BoolCutter)
+            continue;                                   // 부품 합치기의 도구 판 (A 에 들어감)
         if (ringsPath(rs).contains(pos) && ei.x1 > bestTop) {
             bestTop = ei.x1;
             best = it.key();

@@ -1143,6 +1143,29 @@ Model3D MechModel3D::build(MyGraphicsScene *scene)
             }
             continue;
         }
+        // 부품 합치기의 B(도구) 판: A 모양에 계산됨 → 안 그림 / Z 가 달라 빼기 → A 의 커터 / 합치기 → A 의 합침
+        if (ei.boolRole == ExtrudeInfo::BoolConsumed && reg->hasSymbol(ei.boolTarget))
+            continue;
+        if (ei.boolRole == ExtrudeInfo::BoolCutter && reg->hasSymbol(ei.boolTarget)) {
+            const QString aName = reg->symbolInfo(ei.boolTarget).name;
+            ExtrudeInfo c = ei;
+            c.rings.clear();
+            for (int r = 0; r < ei.rings.size(); ++r)
+                if (signedArea(ei.rings.at(r)) > 0.0)
+                    c.rings << ei.rings.at(r);
+            Model3DMeshPart cp = extrudePart(c, aName + QStringLiteral("_파내기") + QString::number(++cutCount[aName]));
+            cp.type = QStringLiteral("Cutter");
+            cp.cutterFor = aName;
+            cp.partId = ei.boolTarget;
+            for (int g = 0; g < cp.groups.size(); ++g)
+                cp.groups[g].material = QStringLiteral("Cutter");
+            cutParts << cp;
+            continue;
+        }
+        if (ei.boolRole == ExtrudeInfo::BoolMerged && reg->hasSymbol(ei.boolTarget)) {
+            ei.merge = true;
+            ei.host = ei.boolTarget;                    // 아래에서 "<A>_합침N" 으로
+        }
         QString pname;
         if (ei.merge && reg->hasSymbol(ei.host)) {
             const QString hostName = reg->symbolInfo(ei.host).name;

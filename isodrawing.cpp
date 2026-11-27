@@ -137,13 +137,399 @@ void mergeLines(QList<QLineF> &lines, double tol)
     lines = out;
 }
 
+// ── 원·호 모서리 찾기 ──
+//   메시의 원통 둘레는 짧은 직선(현) 여러 개 → 이어진 모서리 줄에서 꼭짓점들이 한 평면·한 원 위에 있는 구간을 3D 원으로
+const double kTwoPi = 6.283185307179586;
+
+struct Circ3 {
+    QVector3D c;                      // 중심
+    double R = 0.0;                   // 반지름
+    QVector3D n, e1, e2;              // 법선, 평면 축 (e2 = n × e1)
+    QList<QPair<double, double>> vis; // 보이는 각 구간 (라디안, 시작 ∈ [0, 2π), 끝 = 시작 + 길이)
+    QList<QPair<double, double>> hid; // 숨은 각 구간
+};
+
+double wrapPi(double a)
+{
+    while (a > M_PI)
+        a -= kTwoPi;
+    while (a <= -M_PI)
+        a += kTwoPi;
+    return a;
+}
+
+double circTol(double R)
+{
+    return std::max(1e-3, 2e-3 * R);
+}
+
+// 점들이 한 원 위인가 (꼭짓점 4개 이상, 변마다 중심각 25° 이하). sweep = 변 중심각 합 (라디안)
+//   길이 조건(합 20° 이상)은 부르는 쪽에서 — 앞에서부터 늘려 가며 맞출 때 짧은 처음 구간에서 멈추지 않게
+bool fitCircle(const QVector<QVector3D> &pts, bool closed, Circ3 &out, double *sweep = nullptr)
+{
+    const int m = pts.size();
+    if (m < 4)
+        return false;
+    // 평면 법선 (Newell) — 열린 줄은 끝을 이은 다각형으로
+    double nx = 0.0, ny = 0.0, nz = 0.0, gx = 0.0, gy = 0.0, gz = 0.0;
+    for (int i = 0; i < m; ++i) {
+        const QVector3D &a = pts.at(i), &b = pts.at((i + 1) % m);
+        nx += (double(a.y()) - b.y()) * (double(a.z()) + b.z());
+        ny += (double(a.z()) - b.z()) * (double(a.x()) + b.x());
+        nz += (double(a.x()) - b.x()) * (double(a.y()) + b.y());
+        gx += a.x();
+        gy += a.y();
+        gz += a.z();
+    }
+    const double nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (nl < 1e-9)
+        return false;                                    // 한 직선 위
+    const QVector3D n(float(nx / nl), float(ny / nl), float(nz / nl));
+    const QVector3D g(float(gx / m), float(gy / m), float(gz / m));
+    QVector3D e1 = QVector3D::crossProduct(n, std::fabs(n.x()) < 0.9f ? QVector3D(1, 0, 0) : QVector3D(0, 1, 0)).normalized();
+    const QVector3D e2 = QVector3D::crossProduct(n, e1).normalized();
+    // 평면 좌표에서 원 맞추기 (x² + y² + Dx + Ey + F = 0 최소제곱)
+    double s[3][4] = {{0}};
+    QVector<double> xs(m), ys(m);
+    for (int i = 0; i < m; ++i) {
+        const QVector3D q = pts.at(i) - g;
+        const double x = QVector3D::dotProduct(q, e1), y = QVector3D::dotProduct(q, e2);
+        xs[i] = x;
+        ys[i] = y;
+        const double row[3] = {x, y, 1.0}, rhs = -(x * x + y * y);
+        for (int a = 0; a < 3; ++a) {
+            for (int b = 0; b < 3; ++b)
+                s[a][b] += row[a] * row[b];
+            s[a][3] += row[a] * rhs;
+        }
+    }
+    for (int col = 0; col < 3; ++col) {                  // 가우스 소거
+        int piv = col;
+        for (int r = col + 1; r < 3; ++r)
+            if (std::fabs(s[r][col]) > std::fabs(s[piv][col]))
+                piv = r;
+        if (std::fabs(s[piv][col]) < 1e-18)
+            return false;
+        for (int k = 0; k < 4; ++k)
+            std::swap(s[col][k], s[piv][k]);
+        for (int r = 0; r < 3; ++r) {
+            if (r == col)
+                continue;
+            const double f = s[r][col] / s[col][col];
+            for (int k = col; k < 4; ++k)
+                s[r][k] -= f * s[col][k];
+        }
+    }
+    const double D = s[0][3] / s[0][0], E = s[1][3] / s[1][1], F = s[2][3] / s[2][2];
+    const double cx = -D / 2.0, cy = -E / 2.0, rr = cx * cx + cy * cy - F;
+    if (rr <= 0.0)
+        return false;
+    const double R = std::sqrt(rr);
+    double span = 0.0;
+    for (int i = 0; i < m; ++i)
+        span = std::max(span, double((pts.at(i) - pts.at(0)).length()));
+    if (R > span * 50.0)
+        return false;                                    // 거의 직선
+    const double tol = circTol(R);
+    double total = 0.0;
+    for (int i = 0; i < m; ++i) {
+        if (std::fabs(QVector3D::dotProduct(pts.at(i) - g, n)) > tol)
+            return false;                                // 평면 밖
+        if (std::fabs(std::hypot(xs.at(i) - cx, ys.at(i) - cy) - R) > tol)
+            return false;                                // 원 밖
+        if (i + 1 < m || closed) {
+            const int j = (i + 1) % m;
+            const double da = std::fabs(wrapPi(std::atan2(ys.at(j) - cy, xs.at(j) - cx) - std::atan2(ys.at(i) - cy, xs.at(i) - cx)));
+            if (da > qDegreesToRadians(25.0))
+                return false;                            // 성긴 다각형 (육각 등)
+            total += da;
+        }
+    }
+    if (sweep)
+        *sweep = total;
+    out.c = g + e1 * float(cx) + e2 * float(cy);
+    out.R = R;
+    out.n = n;
+    out.e1 = e1;
+    out.e2 = e2;
+    return true;
+}
+
+// 이미 찾은 원과 같은 원인가 → 그 번호, 없으면 추가
+int addCircle(QList<Circ3> &circles, const Circ3 &c)
+{
+    const double tol = circTol(c.R);
+    for (int i = 0; i < circles.size(); ++i) {
+        const Circ3 &o = circles.at(i);
+        if (std::fabs(o.R - c.R) <= tol && (o.c - c.c).length() <= tol
+            && std::fabs(QVector3D::dotProduct(o.n, c.n)) > 0.9999f)
+            return i;
+    }
+    circles << c;
+    return circles.size() - 1;
+}
+
+double circAngle(const Circ3 &c, const QVector3D &p)
+{
+    const QVector3D q = p - c.c;
+    return std::atan2(QVector3D::dotProduct(q, c.e2), QVector3D::dotProduct(q, c.e1));
+}
+
+// 꼭짓점이 원 위인가
+bool onCirc(const Circ3 &c, const QVector3D &p)
+{
+    const QVector3D q = p - c.c;
+    const double h = QVector3D::dotProduct(q, c.n);
+    const double rad = std::sqrt(std::max(0.0, double(q.lengthSquared()) - h * h));
+    return std::fabs(h) <= circTol(c.R) && std::fabs(rad - c.R) <= circTol(c.R);
+}
+
+// 한 메시의 모서리(feats) 중 원 위의 것 → edgeCircle[k] = 원 번호 (아니면 -1)
+void detectCircles(const QVector<QVector3D> &v, const QVector<QPair<int, int>> &feats, QList<Circ3> &circles,
+                   QVector<int> &edgeCircle)
+{
+    edgeCircle = QVector<int>(feats.size(), -1);
+    QHash<int, QVector<int>> at;                         // 꼭짓점 → 모서리
+    for (int k = 0; k < feats.size(); ++k) {
+        at[feats.at(k).first] << k;
+        at[feats.at(k).second] << k;
+    }
+    QVector<bool> used(feats.size(), false);
+    // 모서리 줄 (가지가 갈리는 꼭짓점에서 끊음): 끝이 있는 줄 먼저, 다음 닫힌 고리
+    QList<QVector<int>> chainEdges;
+    QList<QVector<int>> chainVerts;
+    QList<bool> chainClosed;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int k0 = 0; k0 < feats.size(); ++k0) {
+            if (used.at(k0))
+                continue;
+            int startV = -1;
+            if (pass == 0) {
+                if (at.value(feats.at(k0).first).size() != 2)
+                    startV = feats.at(k0).first;
+                else if (at.value(feats.at(k0).second).size() != 2)
+                    startV = feats.at(k0).second;
+                else
+                    continue;
+            } else {
+                startV = feats.at(k0).first;
+            }
+            QVector<int> es, vs;
+            vs << startV;
+            int curV = startV, curE = k0;
+            bool closed = false;
+            while (true) {
+                used[curE] = true;
+                es << curE;
+                const int nextV = feats.at(curE).first == curV ? feats.at(curE).second : feats.at(curE).first;
+                vs << nextV;
+                if (nextV == startV) {
+                    closed = true;
+                    break;
+                }
+                const QVector<int> &nb = at.value(nextV);
+                if (nb.size() != 2)
+                    break;
+                const int nextE = nb.at(0) == curE ? nb.at(1) : nb.at(0);
+                if (used.at(nextE))
+                    break;
+                curV = nextV;
+                curE = nextE;
+            }
+            chainEdges << es;
+            chainVerts << vs;
+            chainClosed << closed;
+        }
+    }
+    // 줄마다: 통째로 원이면 그대로, 아니면 앞에서부터 원이 되는 가장 긴 구간씩
+    for (int ci = 0; ci < chainEdges.size(); ++ci) {
+        const QVector<int> &es = chainEdges.at(ci);
+        const QVector<int> &vs = chainVerts.at(ci);
+        if (chainClosed.at(ci)) {
+            QVector<QVector3D> pts;
+            for (int i = 0; i + 1 < vs.size(); ++i)
+                pts << v.at(vs.at(i));
+            Circ3 c;
+            if (fitCircle(pts, true, c)) {
+                const int id = addCircle(circles, c);
+                for (int i = 0; i < es.size(); ++i)
+                    edgeCircle[es.at(i)] = id;
+                continue;
+            }
+        }
+        int i = 0;
+        while (i < es.size()) {
+            int best = -1;
+            double bestSweep = 0.0;
+            Circ3 bestC;
+            for (int j = i + 3; j <= es.size(); ++j) {   // 모서리 i..j-1 (꼭짓점 i..j)
+                QVector<QVector3D> pts;
+                for (int t = i; t <= j; ++t)
+                    pts << v.at(vs.at(t));
+                Circ3 c;
+                double sw = 0.0;
+                if (!fitCircle(pts, false, c, &sw))
+                    break;
+                best = j;
+                bestC = c;
+                bestSweep = sw;
+            }
+            if (best < 0 || bestSweep < qDegreesToRadians(20.0)) {   // 원이 아니거나 너무 짧은 구간
+                ++i;
+                continue;
+            }
+            const int id = addCircle(circles, bestC);
+            for (int t = i; t < best; ++t)
+                edgeCircle[es.at(t)] = id;
+            i = best;
+        }
+    }
+    // 남은 짧은 조각: 양 끝이 찾은 원 위 + 짧은 현이면 그 원
+    for (int k = 0; k < feats.size(); ++k) {
+        if (edgeCircle.at(k) >= 0)
+            continue;
+        const QVector3D A = v.at(feats.at(k).first), B = v.at(feats.at(k).second);
+        for (int c = 0; c < circles.size(); ++c) {
+            const Circ3 &cc = circles.at(c);
+            if (onCirc(cc, A) && onCirc(cc, B)
+                && std::fabs(wrapPi(circAngle(cc, B) - circAngle(cc, A))) <= qDegreesToRadians(25.0)) {
+                edgeCircle[k] = c;
+                break;
+            }
+        }
+    }
+}
+
+// 각 구간 합치기 → 전체 원이면 full
+QList<QPair<double, double>> mergeArcs(QList<QPair<double, double>> in, bool &full)
+{
+    full = false;
+    QList<QPair<double, double>> out;
+    if (in.isEmpty())
+        return out;
+    std::sort(in.begin(), in.end());
+    const double gap = 1e-4;
+    QPair<double, double> cur = in.first();
+    for (int i = 1; i < in.size(); ++i) {
+        if (in.at(i).first <= cur.second + gap) {
+            cur.second = std::max(cur.second, in.at(i).second);
+        } else {
+            out << cur;
+            cur = in.at(i);
+        }
+    }
+    out << cur;
+    // 2π 를 넘어 첫 구간과 이어지는 것
+    if (out.size() > 1 && out.last().second + gap >= out.first().first + kTwoPi) {
+        out.first().first = out.last().first;
+        out.first().second = std::max(out.first().second + kTwoPi, out.last().second);
+        out.removeLast();
+    }
+    for (int i = 0; i < out.size(); ++i)
+        if (out.at(i).second - out.at(i).first >= kTwoPi - 1e-3) {
+            full = true;
+            return QList<QPair<double, double>>();
+        }
+    return out;
+}
+
+// 3D 원 → 화면 타원 (r·u = 화면 축, d = 시선, center = 그림 가운데)
+void emitEllipses(const Circ3 &c, const QList<QPair<double, double>> &arcs, bool full, const QVector3D &r,
+                  const QVector3D &u, const QVector3D &d, double scale, const QPointF &center, QList<ProjEllipse> &out)
+{
+    // 장축 = 원 평면 안에서 시선과 수직인 방향 (n × d). 정면으로 보면 아무 방향(원)
+    QVector3D a1 = QVector3D::crossProduct(c.n, d);
+    if (a1.length() < 1e-6f)
+        a1 = c.e1;
+    a1.normalize();
+    const QVector3D a2 = QVector3D::crossProduct(c.n, a1).normalized();
+    const double phi = std::atan2(QVector3D::dotProduct(a1, c.e2), QVector3D::dotProduct(a1, c.e1));
+    const QPointF A(QVector3D::dotProduct(r, a1) * c.R * scale, QVector3D::dotProduct(u, a1) * c.R * scale);
+    QPointF B(QVector3D::dotProduct(r, a2) * c.R * scale, QVector3D::dotProduct(u, a2) * c.R * scale);
+    const double la = std::hypot(A.x(), A.y()), lb = std::hypot(B.x(), B.y());
+    if (la < 1e-9)
+        return;
+    const bool flip = A.x() * B.y() - A.y() * B.x() < 0.0;    // 단축이 장축의 시계 방향 → 매개각 뒤집기
+    ProjEllipse e;
+    e.c = QPointF(QVector3D::dotProduct(r, c.c) * scale, QVector3D::dotProduct(u, c.c) * scale) - center;
+    e.major = A;
+    e.ratio = std::max(1e-6, std::min(1.0, lb / la));
+    if (full) {
+        out << e;
+        return;
+    }
+    for (int i = 0; i < arcs.size(); ++i) {
+        double s0 = arcs.at(i).first - phi, s1 = arcs.at(i).second - phi;
+        if (flip) {
+            const double t = -s1;
+            s1 = -s0;
+            s0 = t;
+        }
+        const double len = s1 - s0;
+        if (len < 1e-4)
+            continue;
+        s0 = std::fmod(s0, kTwoPi);
+        if (s0 < 0.0)
+            s0 += kTwoPi;
+        ProjEllipse p = e;
+        p.full = false;
+        p.t0 = s0;
+        p.t1 = s0 + len;
+        out << p;
+    }
+}
+
+// 화면에서 같은 타원인가 (중심·크기·비율, 장축은 부호 무관) — 전체 타원끼리, 또는 같은 호끼리
+bool sameEllipse(const ProjEllipse &a, const ProjEllipse &b)
+{
+    const double la = std::hypot(a.major.x(), a.major.y()), lb = std::hypot(b.major.x(), b.major.y());
+    const double tol = std::max(1e-4, la * 1e-4);
+    if (std::fabs(la - lb) > tol || std::hypot(a.c.x() - b.c.x(), a.c.y() - b.c.y()) > tol
+        || std::fabs(a.ratio - b.ratio) > 1e-4)
+        return false;
+    if (a.full && b.full) {
+        if (a.ratio > 0.9999)
+            return true;                                 // 원: 장축 방향 무관
+        const double cr = std::fabs(a.major.x() * b.major.y() - a.major.y() * b.major.x());
+        return cr <= tol * la;
+    }
+    return !a.full && !b.full && std::hypot(a.major.x() - b.major.x(), a.major.y() - b.major.y()) <= tol
+           && std::fabs(a.t0 - b.t0) < 1e-4 && std::fabs(a.t1 - b.t1) < 1e-4;
+}
+
+// 겹친 타원 지우기 (예: 위에서 본 원기둥의 위·아래 둘레). 실선과 겹친 숨은선도 지움
+void dedupEllipses(QList<ProjEllipse> &vis, QList<ProjEllipse> &hid)
+{
+    QList<ProjEllipse> v;
+    for (int i = 0; i < vis.size(); ++i) {
+        bool dup = false;
+        for (int k = 0; k < v.size() && !dup; ++k)
+            dup = sameEllipse(v.at(k), vis.at(i));
+        if (!dup)
+            v << vis.at(i);
+    }
+    QList<ProjEllipse> h;
+    for (int i = 0; i < hid.size(); ++i) {
+        bool dup = false;
+        for (int k = 0; k < v.size() && !dup; ++k)
+            dup = sameEllipse(v.at(k), hid.at(i));
+        for (int k = 0; k < h.size() && !dup; ++k)
+            dup = sameEllipse(h.at(k), hid.at(i));
+        if (!dup)
+            h << hid.at(i);
+    }
+    vis = v;
+    hid = h;
+}
+
 } // namespace
 
-void IsoDrawing::isoAxes(QVector3D &view, QVector3D &up, double &scale)
+void IsoDrawing::isoAxes(bool standUp, QVector3D &view, QVector3D &up, double &scale)
 {
-    view = QVector3D(1.0f, 1.0f, 1.0f).normalized();   // 오른쪽·위·앞에서 내려다봄 (정면·우측면·윗면이 보임)
-    up = QVector3D(0.0f, 1.0f, 0.0f);
-    scale = std::sqrt(1.5);                              // 등각도: 축 방향 실제 길이
+    // 3D 창 [등각] 버튼과 같은 요·피치를 창과 같은 식으로 바꿈 → 세우기 설정까지 창과 같은 모습
+    //   세우기 꺼짐: view = (1, −1, 1)/√3, 위 = 도면 Z   /  켜짐: view = (1, 1, 1)/√3, 위 = 도면 Y
+    orbitAxes(kIsoYawDeg, kIsoPitchDeg, standUp, view, up, scale);
+    scale = std::sqrt(1.5);                              // 등각도: 축 방향 실제 길이 (투상 축소 0.816 을 되돌림)
 }
 
 void IsoDrawing::orbitAxes(double yawDeg, double pitchDeg, bool standUp, QVector3D &view, QVector3D &up, double &scale)
@@ -309,6 +695,7 @@ ProjDrawing IsoDrawing::build(const QList<IsoMesh> &meshes, const QVector3D &vie
 
     const double featureCos = std::cos(qDegreesToRadians(featureDeg));
     QList<QLineF> vis, hid;
+    QList<Circ3> circles;                               // 찾은 3D 원 (모든 메시 공통 — 같은 원은 하나로)
     for (int m = 0; m < meshes.size(); ++m) {
         const IsoMesh &me = meshes.at(m);
         // 면 법선(double) + 변 → 면 목록
@@ -363,6 +750,7 @@ ProjDrawing IsoDrawing::build(const QList<IsoMesh> &meshes, const QVector3D &vie
                         break;
                     }
             }
+        QVector<QPair<int, int>> feats;                 // 이 메시의 그릴 모서리
         for (QHash<quint64, QVector<int>>::const_iterator it = edges.constBegin(); it != edges.constEnd(); ++it) {
             const QVector<int> &fs = it.value();
             bool feature = false;
@@ -379,8 +767,20 @@ ProjDrawing IsoDrawing::build(const QList<IsoMesh> &meshes, const QVector3D &vie
             }
             if (!feature)
                 continue;
-            const int ia = int(it.key() >> 32), ib = int(it.key() & 0xffffffffu);
+            feats << qMakePair(int(it.key() >> 32), int(it.key() & 0xffffffffu));
+        }
+        // 원 위의 모서리 → 선 대신 원의 각 구간으로 모음
+        QVector<int> edgeCircle;
+        detectCircles(me.v, feats, circles, edgeCircle);
+        for (int fk = 0; fk < feats.size(); ++fk) {
+            const int ia = feats.at(fk).first, ib = feats.at(fk).second;
             const QVector3D A = me.v.at(ia), B = me.v.at(ib);
+            const int circ = edgeCircle.at(fk);
+            double thA = 0.0, dTh = 0.0;
+            if (circ >= 0) {
+                thA = circAngle(circles.at(circ), A);
+                dTh = wrapPi(circAngle(circles.at(circ), B) - thA);
+            }
             const QPointF a(QVector3D::dotProduct(r, A) * scale, QVector3D::dotProduct(u, A) * scale);
             const QPointF b(QVector3D::dotProduct(r, B) * scale, QVector3D::dotProduct(u, B) * scale);
             const double za = QVector3D::dotProduct(d, A) * scale, zb = QVector3D::dotProduct(d, B) * scale;
@@ -412,8 +812,22 @@ ProjDrawing IsoDrawing::build(const QList<IsoMesh> &meshes, const QVector3D &vie
                 int s1 = s0;
                 while (s1 + 1 < n && st.at(s1 + 1) == st.at(s0))
                     ++s1;
-                const QLineF piece(a + (b - a) * (double(s0) / n), a + (b - a) * (double(s1 + 1) / n));
-                (st.at(s0) == 1 ? vis : hid) << piece;
+                const double f0 = double(s0) / n, f1 = double(s1 + 1) / n;
+                if (circ >= 0) {
+                    // 원의 각 구간 (시작 ∈ [0, 2π))
+                    double t0 = thA + dTh * f0, t1 = thA + dTh * f1;
+                    if (t1 < t0)
+                        std::swap(t0, t1);
+                    const double len = t1 - t0;
+                    t0 = std::fmod(t0, kTwoPi);
+                    if (t0 < 0.0)
+                        t0 += kTwoPi;
+                    Circ3 &cc = circles[circ];
+                    (st.at(s0) == 1 ? cc.vis : cc.hid) << qMakePair(t0, t0 + len);
+                } else {
+                    const QLineF piece(a + (b - a) * f0, a + (b - a) * f1);
+                    (st.at(s0) == 1 ? vis : hid) << piece;
+                }
                 s0 = s1 + 1;
             }
         }
@@ -427,5 +841,18 @@ ProjDrawing IsoDrawing::build(const QList<IsoMesh> &meshes, const QVector3D &vie
     if (showHidden)
         for (int i = 0; i < hid.size(); ++i)
             out.hidden << hid.at(i).translated(-c);
+    // 원 → 타원·타원호 (정면이면 원·호)
+    for (int k = 0; k < circles.size(); ++k) {
+        bool full = false;
+        const QList<QPair<double, double>> va = mergeArcs(circles.at(k).vis, full);
+        if (full || !va.isEmpty())
+            emitEllipses(circles.at(k), va, full, r, u, d, scale, c, out.visibleEllipses);
+        if (!showHidden)
+            continue;
+        const QList<QPair<double, double>> ha = mergeArcs(circles.at(k).hid, full);
+        if (full || !ha.isEmpty())
+            emitEllipses(circles.at(k), ha, full, r, u, d, scale, c, out.hiddenEllipses);
+    }
+    dedupEllipses(out.visibleEllipses, out.hiddenEllipses);
     return out;
 }

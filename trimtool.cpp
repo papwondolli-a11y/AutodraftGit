@@ -9,6 +9,7 @@
 #include "multilinedata.h"
 #include "myarc.h"
 #include "mycircle.h"
+#include "myellipse.h"
 #include "mygraphicsscene.h"
 #include "myline.h"
 #include "mymath.h"
@@ -18,6 +19,54 @@
 #include <QKeyEvent>
 #include <algorithm>
 #include <utility> // std::pair 사용을 위해 추가
+#include <cmath>
+
+namespace {
+const double kEllTwoPi = 6.283185307179586;
+
+double ellWrap(double t) {
+    t = std::fmod(t, kEllTwoPi);
+    if (t < 0.0)
+        t += kEllTwoPi;
+    return t;
+}
+
+// [타원 트림] 매개 범위: 전체 타원은 첫 교점에서 한 바퀴(원 트림과 같은 방식), 타원호는 자기 시작~끝
+void ellipseRange(const MyEllipse *e, const std::vector<MyVector> &inters, double &start, double &span) {
+    if (e->isFull()) {
+        start = inters.empty() ? 0.0 : ellWrap(e->paramAt(inters[0]));
+        span = kEllTwoPi;
+    } else {
+        start = e->startParam;
+        span = e->span();
+    }
+}
+
+// 점 p 의 정규화 위치 (0 = start, 1 = start + span). 호 밖이면 가까운 끝(0 또는 1)
+double ellipseT(const MyEllipse *e, double start, double span, const MyVector &p) {
+    if (span < 1.0e-12)
+        return 0.0;
+    const double rel = ellWrap(e->paramAt(p) - start);
+    if (rel <= span + 1.0e-9)
+        return std::min(1.0, rel / span);
+    // 호 밖: 끝까지 거리 vs 시작까지 거리
+    return (rel - span) < (kEllTwoPi - rel) ? 1.0 : 0.0;
+}
+
+// 매개 a0 ~ a1 구간의 타원 경로 (미리보기)
+QPainterPath ellipsePath(const MyEllipse *e, double a0, double a1) {
+    QPainterPath path;
+    const int n = std::max(8, int(std::ceil(180.0 * (a1 - a0) / kEllTwoPi)));
+    for (int i = 0; i <= n; ++i) {
+        const MyVector p = e->pointAt(a0 + (a1 - a0) * double(i) / double(n));
+        if (i == 0)
+            path.moveTo(p.toPointF());
+        else
+            path.lineTo(p.toPointF());
+    }
+    return path;
+}
+} // namespace
 
 TrimTool::TrimTool(QObject *parent)
     : AbstractTool(parent), m_currentState(State_SelectingCuttingEdges),
@@ -267,8 +316,20 @@ void TrimTool::updateHoverPreview(const QPointF &pos) {
     double clickT = 0.0;
     double targetStartAngle = 0;
     double targetSpanAngle = 360;
+    double eStart = 0.0, eSpan = 0.0;   // [타원] 매개 범위 (라디안)
 
-    if (entity->type() == EntityType::Circle && !intersections.empty()) {
+    if (entity->type() == EntityType::Ellipse) {
+        const MyEllipse *e = static_cast<const MyEllipse *>(entity);
+        ellipseRange(e, intersections, eStart, eSpan);
+        params.push_back(0.0);
+        params.push_back(1.0);
+        for (size_t i = 0; i < intersections.size(); ++i) {
+            const double t = ellipseT(e, eStart, eSpan, intersections[i]);
+            if (t > 0.001 && t < 0.999)
+                params.push_back(t);
+        }
+        clickT = ellipseT(e, eStart, eSpan, e->getNearestPoint(MyVector(pos)));
+    } else if (entity->type() == EntityType::Circle && !intersections.empty()) {
         const MyCircle *c = static_cast<const MyCircle *>(entity);
         center = c->center;
         radius = c->radius;
@@ -358,6 +419,8 @@ void TrimTool::updateHoverPreview(const QPointF &pos) {
         QRectF rect(center.x - radius, center.y - radius, radius * 2, radius * 2);
         path.arcMoveTo(rect, -s);
         path.arcTo(rect, -s, -sp);
+    } else if (entity->type() == EntityType::Ellipse) {
+        path = ellipsePath(static_cast<const MyEllipse *>(entity), eStart + eSpan * t1, eStart + eSpan * t2);
     } else if (entity->type() == EntityType::Polyline) {
         const MyPolyline *pline = static_cast<const MyPolyline *>(entity);
         size_t n =
@@ -530,8 +593,20 @@ bool TrimTool::executeTrim(CadItem *targetItem,
     double clickT = -1.0;
     double targetStartAngle = 0;
     double targetSpanAngle = 360;
+    double eStart = 0.0, eSpan = 0.0;   // [타원] 매개 범위 (라디안)
 
-    if (targetEntity->type() == EntityType::Circle && !intersections.empty()) {
+    if (targetEntity->type() == EntityType::Ellipse) {
+        const MyEllipse *e = static_cast<const MyEllipse *>(targetEntity);
+        ellipseRange(e, intersections, eStart, eSpan);
+        params.push_back(0.0);
+        params.push_back(1.0);
+        for (size_t i = 0; i < intersections.size(); ++i) {
+            const double t = ellipseT(e, eStart, eSpan, intersections[i]);
+            if (t > 0.001 && t < 0.999)
+                params.push_back(t);
+        }
+        clickT = ellipseT(e, eStart, eSpan, e->getNearestPoint(clickVec));
+    } else if (targetEntity->type() == EntityType::Circle && !intersections.empty()) {
         const MyCircle *c = static_cast<const MyCircle *>(targetEntity);
         double baseAngle = MyMath::rad2deg(std::atan2(
             intersections[0].y - c->center.y, intersections[0].x - c->center.x));
@@ -623,6 +698,13 @@ bool TrimTool::executeTrim(CadItem *targetItem,
             }
         }
     }
+    // [타원] 전체 타원은 0 과 1 이 같은 점(첫 교점) — 마지막 구간과 첫 구간이 이어지면 한 호로 (1 을 넘어 이어 붙임)
+    if (targetEntity->type() == EntityType::Ellipse &&
+        static_cast<const MyEllipse *>(targetEntity)->isFull() && mergedSpans.size() > 1 &&
+        mergedSpans.front().first < 0.001 && mergedSpans.back().second > 0.999) {
+        mergedSpans.back().second = 1.0 + mergedSpans.front().second;
+        mergedSpans.erase(mergedSpans.begin());
+    }
 
     auto factory = m_appContext->entityFactory();
     auto curPen = targetItem->pen();
@@ -661,6 +743,11 @@ bool TrimTool::executeTrim(CadItem *targetItem,
             double s = targetStartAngle + targetSpanAngle * t1;
             double sp = targetSpanAngle * (t2 - t1);
             newItem = factory->createArc(center.toPointF(), radius, s, sp, curPen);
+        } else if (targetEntity->type() == EntityType::Ellipse) {
+            // 남는 구간 = 같은 타원의 타원호 (중심·장축·비율 그대로, 매개 범위만)
+            const MyEllipse *e = static_cast<const MyEllipse *>(targetEntity);
+            const MyEllipse piece(e->center, e->majorAxis, e->ratio, eStart + eSpan * t1, eStart + eSpan * t2);
+            newItem = factory->createEllipse(piece, curPen);
         } else if (targetEntity->type() == EntityType::Polyline) {
             const MyPolyline *pline = static_cast<const MyPolyline *>(targetEntity);
             size_t n =

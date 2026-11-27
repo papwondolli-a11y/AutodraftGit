@@ -12,6 +12,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QString>
+#include <QStringList>
 
 class MyGraphicsScene;
 
@@ -63,7 +64,9 @@ public:
     // 점이 판 공간 안인가 (투상도 만들기에서 부품 고르기)
     //   outerOnly = 공간 안 닫힌 모양(섬)도 판으로 봄 (정면 파내기 스케치 고르기)
     //   여러 판이 겹치면 가장 앞(윗면 Z 가 가장 큰) 판
-    static QString plateAt(MyGraphicsScene *scene, const QPointF &pos, bool outerOnly = false);
+    //   skip = 후보에서 뺄 판 UUID (돌출 시작 Z 자동: 지금 고른 공간과 같은 공간인 옛 판은 "아래 판"이 아님)
+    static QString plateAt(MyGraphicsScene *scene, const QPointF &pos, bool outerOnly = false,
+                           const QStringList &skip = QStringList());
     // 보조 투상도용 면 고르기: pos 에 가장 가까운 판 경계 변 → 재료 바깥쪽 법선 각도(도). edge = 그 변 (미리보기용)
     //   maxDist > 0 이면 그보다 멀면 실패
     static bool faceAt(MyGraphicsScene *scene, const QString &uuid, const QPointF &pos, double &normalDeg,

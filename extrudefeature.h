@@ -54,6 +54,10 @@ struct ExtrudeInfo {
     double x1 = 0.0;
     QPointF a0;              // 호스트 축 시작점(도면)
     double angleDeg = 0.0;
+    // 부품 합치기(bool3d)의 B(도구) 판: 어떻게 쓰이는가
+    enum BoolRole { BoolNone = 0, BoolConsumed = 1, BoolCutter = 2, BoolMerged = 3 };
+    int boolRole = BoolNone; // Consumed = A 모양에 계산해 넣음(따로 안 그림), Cutter = A 에서 뺄 커터, Merged = A 에 합침
+    QString boolTarget;      // A 의 UUID
 };
 
 class ExtrudeFeature {
@@ -66,16 +70,56 @@ public:
     // 기록이 지금 도면에서 나타내는 공간 (도면 좌표, 그린 자리 그대로). 못 찾으면 빈 경로
     static QPainterPath currentArea(MyGraphicsScene *scene, const QString &uuid);
 
+    // ── 부품 합치기 (메뉴 "3D 기계용 > 부품 합치기", bool3d) ──
+    //   A(남는 판) props "Bool" = [{"with": B, "op": "union|subtract|intersect"}], B props "BoolInto" = A.
+    //   두 판의 Z 범위가 같으면(빼기는 B 가 A 의 Z 를 덮으면, 겹침은 항상) A 의 평면 모양에 바로 계산 → 하나의 판.
+    //   Z 가 다르면 합치기 = B 를 A 의 합침(Blender Union), 빼기 = B 를 A 의 커터(Blender Difference).
+    enum BoolOp { BoolUnion = 0, BoolSubtract = 1, BoolIntersect = 2 };
+    static QString boolOpKey(int op);
+    // 미리보기: A·B 의 지금 모양으로 결과 평면 모양·Z 범위. exact = 평면 계산으로 끝남(false 면 Blender 에서 처리)
+    static bool previewBool(MyGraphicsScene *scene, const QString &a, const QString &b, int op, QPainterPath &result,
+                            double &z0, double &z1, bool &exact);
+    // 등록 (undo 가능). newName 이 비지 않으면 A 이름 바꿈
+    static bool setBool(MyGraphicsScene *scene, QUndoStack *undo, const QString &a, const QString &b, int op,
+                        const QString &newName, QString *error);
+    // 풀기: uuid 가 A 면 모든 B 를, B 면 그 관계만 풀어 줌. 반환 = 영향받은 판들
+    static QStringList clearBool(MyGraphicsScene *scene, QUndoStack *undo, const QString &uuid);
+    // 합친 판의 스케치 선 끄기·보기 (A props "SketchHidden"). 끄면 A·B 의 지금 모양을 기록해 두고 그 모양을 씀
+    static bool sketchHidden(MyGraphicsScene *scene, const QString &uuid);
+    static void setSketchHidden(MyGraphicsScene *scene, QUndoStack *undo, const QString &a, bool hidden);
+    // 판의 고리 → 경로 (OddEven)
+    static QPainterPath ringsPath(const QList<QPolygonF> &rings);
+
     // 도형 이동(MOVE)에 돌출·파내기 기록이 따라가기
     //   이동 전: 스케치(바깥 윤곽 선)가 모두 옮겨질 기록들 → 이동 후: 기록(사각·고른 점·모양)을 그만큼 옮기고 투상도 갱신
     //   값 = 이동 전 측면도 중심 (회전체에 붙은 돌출은 측면도가 함께 옮겨진 만큼을 뺀다)
     static QMap<QString, QPointF> sketchesMovedBy(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved);
     static void followMove(IAppContext *ctx, MyGraphicsScene *scene, const QMap<QString, QPointF> &records,
                            const QPointF &delta);
+    // 스케치선을 끈 합친 판: 결과 외형선("boolout:<A>" 태그)이 모두 옮겨지면 A·B 기록도 따라가고(records 에 추가),
+    //   숨긴 스케치 선도 같이 옮겨야 한다(extra 에 추가 — 다시 켰을 때 판 자리와 맞게)
+    // 기록 uuid 의 지금 공간 경계 위에 놓인 사용자 스케치 선들 (숨긴 선 포함)
+    static QSet<QGraphicsItem *> sketchItemsOf(MyGraphicsScene *scene, const QString &uuid);
+    // 옮기는 선 중 "옮기지 않는 다른 돌출·파내기의 경계"에도 쓰이는 선 (두 판이 한 변을 같이 쓰는 경우)
+    //   — 이동 도구가 그 자리에 복사본을 남겨 남은 판의 경계가 끊기지 않게
+    static QSet<QGraphicsItem *> sharedSketchLines(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved);
+    static void outlinesMovedBy(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved,
+                                QMap<QString, QPointF> &records, QSet<QGraphicsItem *> &extra);
     // 뷰를 숨기기 직전: 그 뷰에 그린 돌출·파내기의 기록을 지금 모양으로 맞춤 (숨긴 동안은 기록 모양을 쓰므로)
     static void freezeRegions(MyGraphicsScene *scene, QUndoStack *undo, const QString &host, const QString &viewId);
     // 숨긴 뷰에 그린 스케치 선들 (숨김 대상) — 판 자체의 윤곽·정면 파내기에도 쓰는 선은 뺌
     static QSet<QGraphicsItem *> concealedSketchItems(MyGraphicsScene *scene);
+
+    // ── 속성 도크: 판 높이·두께 편집 ──
+    // 도형 item 이 속한 판(단독 돌출) UUID — 판의 바깥 윤곽 스케치 선이거나 판 투상도(MECH_VIEW_ID) 선. 없으면 빈 문자열
+    static QString plateOfItem(MyGraphicsScene *scene, QGraphicsItem *item);
+    // 판의 밑면 높이·두께를 바꿈 (undo 가능, 투상도·3D 갱신). 가운데 대칭 기록이면 일반(밑면 기준) 기록으로 바꿔 저장
+    //   윗면이 바뀌면 부품 합치기로 묶인 같은 부품 안에서 그 위에 쌓인 판들(밑면 = 이 판 윗면, 평면이 겹침 —
+    //   그 위에 또 쌓인 판 포함)도 같은 만큼 옮김. 개별 부품으로 쌓인 판은 그대로
+    static bool setPlateHeight(IAppContext *ctx, MyGraphicsScene *scene, const QString &uuid, double bottom,
+                               double thickness, QString *error);
+    // 판 uuid 위에 쌓인 같은 부품(부품 합치기 묶음)의 판들 (밑면 Z = 아래 판 윗면 Z, 평면 모양이 겹침). 차례로 위로 이어진 판 모두
+    static QStringList platesStackedOn(MyGraphicsScene *scene, const QString &uuid);
 
     // 고른 공간(도면 좌표) 가운데에 가장 가까운 측면도 → 호스트·뷰. 없으면 false
     static bool findHostView(MyGraphicsScene *scene, const QPainterPath &region, QString &host, QString &viewId,

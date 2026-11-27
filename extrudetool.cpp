@@ -50,7 +50,6 @@ ExtrudeDialog::ExtrudeDialog(MyGraphicsScene *scene, const QList<ExtrudeTarget> 
     m_depth->setValue(cut ? 5.0 : 10.0);
     m_merge = new QCheckBox(this);
     m_merge->setChecked(true);
-    m_symmetric = new QCheckBox(tr("시작 Z 를 가운데로 (앞뒤 대칭)"), this);
     m_through = new QCheckBox(tr("관통 (반대쪽 면까지)"), this);
     form->addRow(tr("대상"), m_target);
     form->addRow(tr("방향"), m_direction);
@@ -58,10 +57,10 @@ ExtrudeDialog::ExtrudeDialog(MyGraphicsScene *scene, const QList<ExtrudeTarget> 
     form->addRow(tr("이름"), m_name);
     form->addRow(m_offsetLabel, m_offset);
     form->addRow(m_startNote);
-    form->addRow(tr("깊이 (mm)"), m_depth);
+    m_depthLabel = new QLabel(this);
+    form->addRow(m_depthLabel, m_depth);
     lay->addLayout(form);
     lay->addWidget(m_merge);
-    lay->addWidget(m_symmetric);
     lay->addWidget(m_through);
     QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -71,7 +70,6 @@ ExtrudeDialog::ExtrudeDialog(MyGraphicsScene *scene, const QList<ExtrudeTarget> 
     connect(m_target, &QComboBox::currentIndexChanged, this, &ExtrudeDialog::onTargetChanged);
     connect(m_offset, &QDoubleSpinBox::valueChanged, this, &ExtrudeDialog::onValueChanged);
     connect(m_depth, &QDoubleSpinBox::valueChanged, this, &ExtrudeDialog::onValueChanged);
-    connect(m_symmetric, &QCheckBox::toggled, this, &ExtrudeDialog::onValueChanged);
     connect(m_through, &QCheckBox::toggled, this, &ExtrudeDialog::onValueChanged);
     connect(m_through, &QCheckBox::toggled, m_depth, &QWidget::setDisabled);
 }
@@ -107,14 +105,15 @@ void ExtrudeDialog::onTargetChanged(int)
         m_offset->setValue(none ? t.startZ : 0.0);
         m_lastType = int(t.type);
     }
-    m_offsetLabel->setText(none ? tr("시작 Z (mm, 보는 쪽 +)") : tr("시작 거리 (끝면에서, mm)"));
+    m_offsetLabel->setText(none ? tr("시작 높이 (mm, 보는 쪽 +)") : tr("시작 거리 (끝면에서, mm)"));
+    // 새 판(돌출)은 판 두께, 돌기·받침대·파내기는 들어가는/나오는 깊이
+    m_depthLabel->setText(none && !m_cut ? tr("두께 (mm)") : tr("깊이 (mm)"));
     m_offsetLabel->setVisible(none || side);
     m_offset->setVisible(none || side);
     m_startNote->setText(t.startNote);
     m_startNote->setVisible(none && !t.startNote.isEmpty());
     m_merge->setText(tr("'%1'에 합치기 (한 덩어리)").arg(t.hostName));
     m_merge->setVisible(!none && !m_cut);
-    m_symmetric->setVisible(none);
     m_through->setVisible(m_cut && !side);
     if (side && m_through->isChecked())
         m_through->setChecked(false);                   // 회전체 홈에는 관통이 없음 (깊이 칸도 다시 켜짐)
@@ -130,7 +129,7 @@ ExtrudeValues ExtrudeDialog::values() const
     ExtrudeValues v;
     v.offset = (t.type == ExtrudeTarget::None || t.type == ExtrudeTarget::RevolveSide) ? m_offset->value() : 0.0;
     v.depth = m_depth->value();
-    v.symmetric = t.type == ExtrudeTarget::None && m_symmetric->isChecked();
+    v.symmetric = false;    // 가운데 대칭 체크박스는 없앰 (시작 높이 = 밑면). 옛 대칭 기록은 resolve 가 그대로 읽음
     v.through = m_cut && t.type != ExtrudeTarget::RevolveSide && m_through->isChecked();
     v.cut = m_cut;
     return v;
@@ -148,7 +147,7 @@ bool ExtrudeDialog::merge() const
 }
 
 namespace {
-// 고른 공간 안쪽의 대표 점 — 고른 점(공간 안)이 있으면 그것, 복합모양이면 공간 경계 사각 가운데
+// 고른 공간 안쪽의 대표 점 — 첫 고른 점 (없을 일은 없지만 만일을 위해 공간 경계 사각 가운데)
 QPointF regionProbe(const QList<QPointF> &picks, const QPainterPath &region)
 {
     return picks.isEmpty() ? region.boundingRect().center() : picks.first();
@@ -200,9 +199,9 @@ void ExtrudeTool::showPrompt()
     else if (m_state == AreaBox2)
         dock->showInteractivePrompt(tr(" 사각상자의 두번째 점을 지정하세요 : "), {});
     else
-        dock->showInteractivePrompt(m_cut ? tr(" 파낼 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) [복합모양(B)] : ")
-                                          : tr(" 돌출할 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) [복합모양(B)] : "),
-                                    {tr("복합모양(B)")});
+        dock->showInteractivePrompt(m_cut ? tr(" 파낼 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) : ")
+                                          : tr(" 돌출할 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) : "),
+                                    {});
 }
 
 void ExtrudeTool::cancelTool()
@@ -218,15 +217,11 @@ void ExtrudeTool::cancelTool()
 bool ExtrudeTool::processCommand(const QString &command)
 {
     const QString c = command.trimmed().toUpper();
-    if (m_state == AreaPick && (c == QLatin1String("B") || c.contains(QLatin1String("(B)")))) {
-        finishArea(true);
-        return true;
-    }
     if (m_state == AreaPick && c.isEmpty()) {
         if (m_picks.isEmpty())
             cancelTool();
         else
-            finishArea(false);
+            finishArea();
         return true;
     }
     return false;
@@ -243,7 +238,7 @@ void ExtrudeTool::keyPress(QKeyEvent *event)
         if (m_picks.isEmpty())
             cancelTool();
         else
-            finishArea(false);
+            finishArea();
         return;
     }
     AbstractTool::keyPress(event);
@@ -277,7 +272,7 @@ void ExtrudeTool::mousePress(QPointF pos, Qt::MouseButton button)
     IAppContext *ctx = getContext();
     if (button == Qt::RightButton) {
         if (m_state == AreaPick && !m_picks.isEmpty())
-            finishArea(false);
+            finishArea();
         else
             cancelTool();
         return;
@@ -311,23 +306,19 @@ void ExtrudeTool::mousePress(QPointF pos, Qt::MouseButton button)
     // AreaPick
     QList<QPointF> one;
     one << pos;
-    if (RevolveProfile::areaRegion(m_scene, m_box, one, true).isEmpty()) {
+    if (RevolveProfile::areaRegion(m_scene, m_box, one, true, false, false, QStringList(), true).isEmpty()) {
         if (ctx && ctx->commandDock())
             ctx->commandDock()->logMessage(tr("이 점을 둘러싼 닫힌 공간을 찾지 못했습니다."), CommandDock::Warning);
         return;
     }
     m_picks << pos;
-    m_region = RevolveProfile::areaRegion(m_scene, m_box, m_picks, true);
+    m_region = RevolveProfile::areaRegion(m_scene, m_box, m_picks, true, false, false, QStringList(), true);   // 중심선 레이어 제외
     m_scene->setGhostPath(m_region, true);
 }
 
-void ExtrudeTool::finishArea(bool complexShape)
+void ExtrudeTool::finishArea()
 {
     IAppContext *ctx = getContext();
-    if (complexShape) {
-        m_picks.clear();
-        m_region = RevolveProfile::areaRegion(m_scene, m_box, m_picks, true);
-    }
     QWidget *parent = QApplication::activeWindow();
     if (m_region.isEmpty()) {
         QMessageBox::warning(parent, tr("돌출"), tr("닫힌 공간을 찾지 못했습니다."));

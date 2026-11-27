@@ -143,7 +143,7 @@ QString DepthMove::partAt(MyGraphicsScene *scene, const QPointF &pos, bool &isEx
         const QJsonArray pj = QJsonDocument::fromJson(pr.value(QStringLiteral("Picks")).toString().toUtf8()).array();
         for (int k = 0; k < pj.size(); ++k)
             picks << QPointF(pj.at(k).toArray().at(0).toDouble(), pj.at(k).toArray().at(1).toDouble());
-        if (RevolveProfile::areaRegion(scene, box, picks, true).contains(pos)) {
+        if (RevolveProfile::areaRegion(scene, box, picks, true, false, false, QStringList(), true).contains(pos)) {
             isExtrude = true;
             return it.key();
         }

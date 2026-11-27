@@ -263,12 +263,22 @@ QList<ExtrudeTarget> ExtrudeTargets::forExtrude(MyGraphicsScene *scene, const QP
     addPlateFaces(scene, region.boundingRect().center(), out);
     addRevolveSides(scene, region, sides);
     // 없음 — 이미 돌출된 판 위에 그린 공간이면 시작 Z = 그 판(겹치면 가장 앞)의 윗면
+    //   지금 고른 공간과 같은 공간인 판은 뺀다: 그 판은 "아래 판"이 아니라 같은 스케치의 옛 기록
+    //   (투상도·3D 만 지우고 기록이 남았거나, 다시 돌출하는 경우 — 등록 때 removeSameStandalone 이 대체함)
     ExtrudeTarget none;
-    const QString below = PlateView::plateAt(scene, probe, true);
+    QStringList sameSpace;
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        if (it.value().type != QLatin1String("MechExtrude") || recordType(it.value().props) != ExtrudeTarget::None)
+            continue;
+        if (sameArea(ExtrudeFeature::currentArea(scene, it.key()), region))
+            sameSpace << it.key();
+    }
+    const QString below = PlateView::plateAt(scene, probe, true, sameSpace);
     ExtrudeInfo bi;
     if (!below.isEmpty() && ExtrudeFeature::resolve(scene, below, bi)) {
         none.startZ = bi.x1;
-        none.startNote = trT("※ 아래 판 '%1' 윗면 Z = %2 자동 적용").arg(bi.name).arg(bi.x1);
+        none.startNote = trT("※ 아래 판 '%1' 윗면 높이 = %2 자동 적용").arg(bi.name).arg(bi.x1);
     }
     // 떨어진 측면도는 자동 판단에 쓰지 않으므로 "없음" 뒤로
     for (int i = 0; i < sides.size(); ++i)

@@ -1,4 +1,5 @@
 #include "selecttool.h"
+#include "booltool.h"
 #include "cadcommands.h"
 #include "caditem.h"
 #include "gripitem.h"
@@ -61,6 +62,11 @@ void SelectTool::deactivate() {
 void SelectTool::mousePress(QPointF pos, Qt::MouseButton button) {
   if (!m_scene)
     return;
+  // 오른쪽 클릭: 합친 판(3D 기계용 > 부품 합치기)이면 스케치 선 보기·끄기 / 합치기 풀기 메뉴
+  if (button == Qt::RightButton) {
+    BoolMenu::exec(getContext(), m_scene, pos);
+    return;
+  }
   if (button != Qt::LeftButton)
     return;
 

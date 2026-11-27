@@ -55,12 +55,12 @@ private:
     QLabel *m_direction = nullptr;
     QLabel *m_warning = nullptr;     // 공간이 대상 측면도와 떨어져 있음
     QLineEdit *m_name = nullptr;
-    QLabel *m_offsetLabel = nullptr; // 시작 거리 ↔ 시작 Z
+    QLabel *m_offsetLabel = nullptr; // 시작 거리 ↔ 시작 높이
+    QLabel *m_depthLabel = nullptr;  // 깊이 ↔ 두께 (새 판)
     QDoubleSpinBox *m_offset = nullptr;
     QLabel *m_startNote = nullptr;   // 시작 Z 자동 설명
     QDoubleSpinBox *m_depth = nullptr;
     QCheckBox *m_merge = nullptr;
-    QCheckBox *m_symmetric = nullptr;
     QCheckBox *m_through = nullptr;
 };
 
@@ -86,7 +86,8 @@ private:
     enum State { AreaBox1, AreaBox2, AreaPick };
 
     void showPrompt();
-    void finishArea(bool complexShape);
+    // 고른 내부 점으로 찾은 공간을 돌출·파내기 (복합모양 B 는 없앰 — 사각 안 아무 선이나 판이 되어 지운 판이 되살아남)
+    void finishArea();
     // 같은 공간을 다른 대상으로 돌출한 옛 기록을 어떻게 할지 물어봄. false = 취소. remove = 지울 기록
     bool askOldRecords(const ExtrudeTarget &t, QWidget *parent, QStringList &remove);
     void clearPreview();

@@ -2,6 +2,7 @@
 
 #include "advancedboundaryfinder.h"
 #include "caditem.h"
+#include "drawingsettingscommand.h"
 #include "hatchitem.h"
 #include "holedata.h"
 #include "holefeature.h"
@@ -610,8 +611,10 @@ QPainterPath RevolveProfile::hatchLineRegion(MyGraphicsScene *scene, const QPain
 
 QPainterPath RevolveProfile::areaRegion(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
                                         bool includeViewLines, bool excludeHoleSections, bool excludeHoles,
-                                        const QStringList &excludeViewIds)
+                                        const QStringList &excludeViewIds, bool excludeCenterLines)
 {
+    // 중심선 레이어 (비어 있으면 빼지 않음)
+    const QString centerLayer = excludeCenterLines ? DrawingSettingsCommand::s_centerLineLayer : QString();
     QPainterPath out;
     if (!scene || box.isEmpty())
         return out;
@@ -633,6 +636,9 @@ QPainterPath RevolveProfile::areaRegion(MyGraphicsScene *scene, const QRectF &bo
             continue;
         // 구멍 객체와 그 중심선(같은 HOLE_DATA_GROUP_ID 의 독립 선) — 판을 가로질러 공간을 쪼개지 않게
         if (excludeHoles && (dynamic_cast<HoleItem *>(ci) || !ci->data(HOLE_DATA_GROUP_ID).toString().isEmpty()))
+            continue;
+        // 중심선 레이어의 선 — 공간을 가로질러 쪼개지 않게 (도면틀 설정에서 정한 레이어)
+        if (!centerLayer.isEmpty() && ci->layerName() == centerLayer)
             continue;
         items.append(ci);
     }

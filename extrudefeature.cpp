@@ -131,10 +131,34 @@ namespace {
 QPainterPath findArea(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
                       const QStringList &excludeViewIds, bool plateFlags)
 {
-    return RevolveProfile::areaRegion(scene, box, picks, true, plateFlags, plateFlags, excludeViewIds);
+    return RevolveProfile::areaRegion(scene, box, picks, true, plateFlags, plateFlags, excludeViewIds, true);   // 중심선 레이어 제외
 }
 
 double rectArea(const QRectF &r) { return std::fabs(r.width() * r.height()); }
+
+// 두 공간이 얼마나 겹치나 = 겹친 넓이 / 합친 넓이 (0 ~ 1)
+//   두 경로를 덮는 사각을 격자로 나눠 칸 가운데 점이 어느 쪽에 드는지 세어 어림한다 (구멍 고리도 그대로 반영)
+double overlapRatio(const QPainterPath &a, const QPainterPath &b)
+{
+    if (a.isEmpty() || b.isEmpty())
+        return 0.0;
+    const QRectF bb = a.boundingRect().united(b.boundingRect());
+    const int n = 48;
+    const double cw = bb.width() / n, ch = bb.height() / n;
+    if (cw <= 0.0 || ch <= 0.0)
+        return 0.0;
+    int both = 0, any = 0;
+    for (int iy = 0; iy < n; ++iy)
+        for (int ix = 0; ix < n; ++ix) {
+            const QPointF p(bb.left() + (ix + 0.5) * cw, bb.top() + (iy + 0.5) * ch);
+            const bool ina = a.contains(p), inb = b.contains(p);
+            if (ina || inb)
+                ++any;
+            if (ina && inb)
+                ++both;
+        }
+    return any > 0 ? double(both) / double(any) : 0.0;
+}
 
 // 경로 안쪽의 점 하나 (격자 표본, 둘레 여유 = 칸 크기의 1/4). 없으면 false
 bool interiorPoint(const QPainterPath &area, QPointF &out)
@@ -157,16 +181,75 @@ bool interiorPoint(const QPainterPath &area, QPointF &out)
 }
 } // namespace
 
+// 가장 큰 고리 (바깥 윤곽)
+QPolygonF outerRing(const QPainterPath &region)
+{
+    QPolygonF best;
+    double a = -1.0;
+    const QList<QPolygonF> polys = region.toSubpathPolygons();
+    for (int i = 0; i < polys.size(); ++i)
+        if (std::fabs(ringArea(polys.at(i))) > a) {
+            a = std::fabs(ringArea(polys.at(i)));
+            best = polys.at(i);
+        }
+    return best;
+}
+
+// 두 고리가 (거의) 같은 모양인가 — 크기의 0.5 % 까지
+bool sameRing(const QPolygonF &a, const QPolygonF &b)
+{
+    if (a.size() < 3 || b.size() < 3)
+        return false;
+    const QRectF bb = b.boundingRect();
+    const double tol = std::max(0.05, 0.005 * std::max(bb.width(), bb.height()));
+    QPainterPath pa, pb;
+    pa.addPolygon(a);
+    pb.addPolygon(b);
+    const QRectF d1 = pa.subtracted(pb).boundingRect(), d2 = pb.subtracted(pa).boundingRect();
+    return !((d1.width() >= tol && d1.height() >= tol) || (d2.width() >= tol && d2.height() >= tol));
+}
+
+// 고리 둘레가 모두(97 %) 도면 선 위에 있는가 — 경계에서 빼는 뷰(excludeViewIds)의 선은 치지 않음
+bool ringFullyDrawn(MyGraphicsScene *scene, const QPolygonF &ring, const QStringList &excludeViewIds)
+{
+    QPainterPath one;
+    one.addPolygon(ring);
+    one.closeSubpath();
+    const QRectF bb = ring.boundingRect();
+    const double tol = std::max(0.02, 2e-4 * std::max(bb.width(), bb.height()));
+    const int n = 60;
+    int hit = 0;
+    for (int k = 0; k < n; ++k) {
+        const QPointF q = one.pointAtPercent((k + 0.5) / n);
+        const QRectF qr(q.x() - tol, q.y() - tol, 2.0 * tol, 2.0 * tol);
+        const QList<QGraphicsItem *> near = scene->items(qr, Qt::IntersectsItemShape);
+        for (int t = 0; t < near.size(); ++t) {
+            const CadItem *ci = dynamic_cast<const CadItem *>(near.at(t));
+            if (!ci || dynamic_cast<const HatchItem *>(ci) ||
+                excludeViewIds.contains(ci->data(MECH_VIEW_ID).toString()))
+                continue;
+            ++hit;
+            break;
+        }
+    }
+    return hit * 100 >= n * 97;
+}
+
 // 공간 다시 찾기 + 고른 점 보정
 //   저장된 고른 점(picks)으로 공간을 다시 찾되,
+//   ⓪ 다른 모양의 선이 겹쳐 지나가면(판 두 장을 겹침) 공간이 조각나 일부만 잡힌다
+//      → 바깥 윤곽이 등록 때와 다르지만 등록 윤곽 선이 고스란히 남아 있으면 등록 모양을 쓴다
 //   ① 나중에 그 점 위에 다른 닫힌 모양(예: 판 안쪽에 그린 다각형)을 그리면 고른 점이 그 작은 모양 안에 들어가
 //      "판 = 안쪽 다각형" 으로 바뀌어 버린다.
 //   ② 모양을 지우거나 옮겨 고른 점이 빈 곳에 떨어지면 도면틀 안쪽 같은 엉뚱한 큰 공간이 잡힌다
 //      (받침대·판이 도면틀만 하게 커지던 문제).
 //   → 다시 찾은 공간이 등록 때 모양(Region)과 다르면 등록 모양 안의 점(①은 덮지 않는 부분)으로 다시 골라
 //     등록 모양에 더 가까운 쪽을 쓰고, 그래도 등록 모양보다 4배 넘게 크면 그 모양은 없어진 것으로 본다(빈 경로).
+//   strict (단독 돌출 = 판): 다시 찾은 공간이 등록 모양과 거의 안 겹치면(겹친 넓이/합친 넓이 < 0.25) 없어진 것으로 봄
+//     — 판을 지운 뒤 그 자리에 그린 다른 부품(축 투상선 등) 사이의 작은 공간을 옛 판 기록이 잡아 되살아나던 문제
 QPainterPath repickRegion(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
-                          const QString &storedJson, const QStringList &excludeViewIds, bool plateFlags)
+                          const QString &storedJson, const QStringList &excludeViewIds, bool plateFlags,
+                          bool strict = false)
 {
     QPainterPath region = findArea(scene, box, picks, excludeViewIds, plateFlags);
     const QPainterPath stored = regionFromJson(storedJson);
@@ -175,8 +258,16 @@ QPainterPath repickRegion(MyGraphicsScene *scene, const QRectF &box, const QList
     const QRectF sb = stored.boundingRect();
     QRectF rb = region.boundingRect();
     const double tol = std::max(1e-3, 1e-4 * std::max(sb.width(), sb.height()));
+    const QPolygonF storedOuter = outerRing(stored);
+    if (!sameRing(outerRing(region), storedOuter) && ringFullyDrawn(scene, storedOuter, excludeViewIds))
+        return stored;                                  // ⓪ 겹친 선에 조각남 — 등록 모양
     if (sameRect(sb, rb, tol))
         return region;                                  // 등록 때와 같은 바깥 경계 — 그대로
+    // 고른 점 없는 옛 기록(복합모양 B, 지금은 없앤 옵션): 사각 안 아무 닫힌 선이나 잡히므로
+    //   등록 모양과 절반 이상 겹칠 때만 같은 판으로 본다 (선을 조금 고친 것은 따라가고,
+    //   지우고 같은 범위에 새로 그린 다른 모양은 옛 판이 되살아나지 않게)
+    if (picks.isEmpty())
+        return overlapRatio(stored, region) >= 0.5 ? region : QPainterPath();
     const bool tooBig = rectArea(rb) > 4.0 * rectArea(sb);
     QPainterPath sample = stored.subtracted(region);    // ① 등록 모양 중 지금 공간이 덮지 않는 부분
     if (sample.isEmpty()) {
@@ -194,6 +285,8 @@ QPainterPath repickRegion(MyGraphicsScene *scene, const QRectF &box, const QList
     }
     if (rectArea(rb) > 4.0 * rectArea(sb))
         return QPainterPath();                          // 등록 모양을 다시 찾지 못함 (지워졌거나 옮겨짐)
+    if (strict && overlapRatio(stored, region) < 0.25)
+        return QPainterPath();                          // 등록 모양과 딴판인 공간 — 다른 선을 잘못 잡음
     return region;
 }
 
@@ -209,6 +302,16 @@ bool viewConcealed(MyGraphicsScene *scene, const QString &host, const QString &v
         if (vj.at(i).toObject().value(QStringLiteral("id")).toString() == viewId)
             return vj.at(i).toObject().value(QStringLiteral("concealed")).toBool();
     return false;
+}
+
+// 합친 판의 스케치 선을 껐는가 (자기 또는 자기가 쓰인 A 의 "SketchHidden")
+bool sketchOff(MyGraphicsScene *scene, const QMap<QString, QVariant> &p)
+{
+    if (p.value(QStringLiteral("SketchHidden")).toBool())
+        return true;
+    const QString into = p.value(QStringLiteral("BoolInto")).toString();
+    return !into.isEmpty() && scene->symbolRegistry()->hasSymbol(into) &&
+           scene->symbolRegistry()->symbolInfo(into).props.value(QStringLiteral("SketchHidden")).toBool();
 }
 
 // 판의 측면·보조 뷰에 그린 돌기·파내기의 현재 공간 (그 뷰의 판 투상선은 경계에서 뺌)
@@ -345,7 +448,7 @@ QList<QRectF> otherStandaloneBoxes(MyGraphicsScene *scene, const QString &selfUu
         for (int i = 0; i < vj.size(); ++i)
             views << vj.at(i).toObject().value(QStringLiteral("id")).toString();
         const QPainterPath region =
-            repickRegion(scene, box, picks, p.value(QStringLiteral("Region")).toString(), views, true);
+            repickRegion(scene, box, picks, p.value(QStringLiteral("Region")).toString(), views, true, true);
         if (!region.isEmpty())
             out << region.boundingRect();
     }
@@ -382,7 +485,7 @@ QList<QRectF> frontCutBoxes(MyGraphicsScene *scene, const QString &plateUuid, co
         const QJsonArray pj = QJsonDocument::fromJson(p.value(QStringLiteral("Picks")).toString().toUtf8()).array();
         for (int i = 0; i < pj.size(); ++i)
             picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
-        const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks, true, true, true, ownViews);
+        const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks, true, true, true, ownViews, true);
         if (!region.isEmpty())
             out << region.boundingRect();
     }
@@ -495,9 +598,12 @@ QPainterPath ExtrudeFeature::currentArea(MyGraphicsScene *scene, const QString &
         picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
     if (plateBoss)
         return bossRegion(scene, pr);
+    if (standalone && sketchOff(scene, pr))
+        return regionFromJson(pr.value(QStringLiteral("Region")).toString());   // 스케치 선을 끈 합친 판
     // 경계로 치지 않는 뷰 (resolve 와 같은 규칙)
     const QStringList own = plateViewIds(scene, plateFront ? host : uuid);
-    return repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(), own, true);
+    return repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(), own, true,
+                        standalone && !plateFront);     // 판은 엄격하게 (resolve 와 같은 규칙)
 }
 
 void ExtrudeFeature::freezeRegions(MyGraphicsScene *scene, QUndoStack *undo, const QString &host, const QString &viewId)
@@ -652,6 +758,91 @@ QMap<QString, QPointF> ExtrudeFeature::sketchesMovedBy(MyGraphicsScene *scene, c
     return out;
 }
 
+QSet<QGraphicsItem *> ExtrudeFeature::sketchItemsOf(MyGraphicsScene *scene, const QString &uuid)
+{
+    QSet<QGraphicsItem *> out;
+    if (scene)
+        collectSketch(scene->items(), currentArea(scene, uuid), out);
+    return out;
+}
+
+QSet<QGraphicsItem *> ExtrudeFeature::sharedSketchLines(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved)
+{
+    QSet<QGraphicsItem *> out;
+    if (!scene || moved.isEmpty())
+        return out;
+    // 같이 쓰는 선 = 통째로 옮기는 판의 경계(whole) 이면서 남는 판의 경계(left)인 선
+    //   (판 하나의 변 하나만 일부러 옮길 때는 복사본을 남기지 않음)
+    QSet<QGraphicsItem *> whole, left;
+    const QList<QGraphicsItem *> items = scene->items();
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        const QMap<QString, QVariant> &p = it.value().props;
+        if (it.value().type != QLatin1String("MechExtrude"))
+            continue;
+        if (viewConcealed(scene, p.value(QStringLiteral("Host")).toString(), p.value(QStringLiteral("ViewId")).toString()))
+            continue;                                   // 숨긴 스케치는 선택되지 않음
+        if (p.value(QStringLiteral("Standalone")).toBool() && sketchOff(scene, p))
+            continue;                                   // 스케치를 끈 판은 기록 모양을 씀 (선과 무관)
+        QSet<QGraphicsItem *> sketch;
+        collectSketch(items, outerLoop(currentArea(scene, it.key())), sketch);
+        if (sketch.isEmpty())
+            continue;
+        if (moved.contains(sketch)) {
+            whole.unite(sketch);                        // 이 판 스케치를 통째로 옮김 → 판이 따라감
+            continue;
+        }
+        for (QSet<QGraphicsItem *>::const_iterator s = sketch.constBegin(); s != sketch.constEnd(); ++s)
+            if (moved.contains(*s))
+                left.insert(*s);                        // 남는 판의 경계 선인데 옮겨짐
+    }
+    for (QSet<QGraphicsItem *>::const_iterator s = left.constBegin(); s != left.constEnd(); ++s)
+        if (whole.contains(*s))
+            out.insert(*s);
+    return out;
+}
+
+void ExtrudeFeature::outlinesMovedBy(MyGraphicsScene *scene, const QSet<QGraphicsItem *> &moved,
+                                     QMap<QString, QPointF> &records, QSet<QGraphicsItem *> &extra)
+{
+    if (!scene || moved.isEmpty())
+        return;
+    const QList<QGraphicsItem *> items = scene->items();
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        if (it.value().type != QLatin1String("MechExtrude") ||
+            !it.value().props.value(QStringLiteral("SketchHidden")).toBool())
+            continue;
+        // 결과 외형선 (BoolMenu::drawOutline 이 붙이는 태그 — booltool.cpp outlineTag 와 같은 규칙)
+        const QString tag = QStringLiteral("boolout:") + it.key();
+        bool any = false, allMoved = true;
+        for (int i = 0; i < items.size() && allMoved; ++i) {
+            if (items.at(i)->data(MECH_VIEW_ID).toString() != tag)
+                continue;
+            any = true;
+            allMoved = moved.contains(items.at(i));
+        }
+        if (!any || !allMoved)
+            continue;                                   // 외형선 일부만 옮김 → 판은 그대로
+        // A 와 그 B 들 (스케치를 끈 동안은 기록 모양 Region 을 쓰므로 기록을 옮기면 3D·투상도가 따라감)
+        QStringList group{it.key()};
+        for (QMap<QString, SymbolInfo>::const_iterator jt = all.constBegin(); jt != all.constEnd(); ++jt)
+            if (jt.value().type == QLatin1String("MechExtrude") &&
+                jt.value().props.value(QStringLiteral("BoolInto")).toString() == it.key())
+                group << jt.key();
+        for (int g = 0; g < group.size(); ++g) {
+            if (!records.contains(group.at(g)))
+                records.insert(group.at(g), QPointF());  // 단독 판은 측면도 중심 없음
+            // 숨긴 스케치 선 (기록 모양 위의 사용자 선)
+            QSet<QGraphicsItem *> sk;
+            collectSketch(items, currentArea(scene, group.at(g)), sk);
+            for (QSet<QGraphicsItem *>::const_iterator s = sk.constBegin(); s != sk.constEnd(); ++s)
+                if (!moved.contains(*s))
+                    extra.insert(*s);
+        }
+    }
+}
+
 void ExtrudeFeature::followMove(IAppContext *ctx, MyGraphicsScene *scene, const QMap<QString, QPointF> &records,
                                 const QPointF &delta)
 {
@@ -684,6 +875,190 @@ void ExtrudeFeature::followMove(IAppContext *ctx, MyGraphicsScene *scene, const 
         ProjectionView::regeneratePart(ctx, scene, *p);
 }
 
+QString ExtrudeFeature::plateOfItem(MyGraphicsScene *scene, QGraphicsItem *item)
+{
+    if (!scene || !item)
+        return QString();
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    // ① 판 투상도 선: 그 판의 Views 목록에 뷰 ID 가 있음
+    const QString vid = item->data(MECH_VIEW_ID).toString();
+    if (!vid.isEmpty()) {
+        for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+            if (it.value().type != QLatin1String("MechExtrude") ||
+                !it.value().props.value(QStringLiteral("Standalone")).toBool())
+                continue;
+            const QJsonArray vj =
+                QJsonDocument::fromJson(it.value().props.value(QStringLiteral("Views")).toString().toUtf8()).array();
+            for (int i = 0; i < vj.size(); ++i)
+                if (vj.at(i).toObject().value(QStringLiteral("id")).toString() == vid)
+                    return it.key();
+        }
+        return QString();
+    }
+    // ② 판 경계(바깥 윤곽) 위의 스케치 선 — 이동(MOVE) 따라가기와 같은 판정(collectSketch)
+    const QList<QGraphicsItem *> one{item};
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        if (it.value().type != QLatin1String("MechExtrude") || !it.value().props.value(QStringLiteral("Standalone")).toBool())
+            continue;
+        QSet<QGraphicsItem *> hit;
+        collectSketch(one, outerLoop(currentArea(scene, it.key())), hit);
+        if (!hit.isEmpty())
+            return it.key();
+    }
+    return QString();
+}
+
+bool ExtrudeFeature::setPlateHeight(IAppContext *ctx, MyGraphicsScene *scene, const QString &uuid, double bottom,
+                                    double thickness, QString *error)
+{
+    if (!scene || !scene->symbolRegistry()->hasSymbol(uuid)) {
+        if (error)
+            *error = QStringLiteral("판을 찾지 못했습니다.");
+        return false;
+    }
+    if (thickness < 0.01) {
+        if (error)
+            *error = QStringLiteral("두께는 0.01 mm 이상이어야 합니다.");
+        return false;
+    }
+    SceneSymbolRegistry *reg = scene->symbolRegistry();
+    const SymbolInfo oldInfo = reg->symbolInfo(uuid);
+    if (!oldInfo.props.value(QStringLiteral("Standalone")).toBool()) {
+        if (error)
+            *error = QStringLiteral("판(단독 돌출)이 아닙니다.");
+        return false;
+    }
+    ExtrudeInfo before;
+    if (!resolve(scene, uuid, before)) {
+        if (error)
+            *error = QStringLiteral("판의 공간을 찾지 못했습니다 (경계 선 확인).");
+        return false;
+    }
+    // 같은 부품(부품 합치기 묶음) 안에서 이 판과 Z 범위가 같은 판 = 한 장으로 합쳐진 판 → 높이·두께를 똑같이
+    QStringList coplanar;
+    {
+        const QString into = oldInfo.props.value(QStringLiteral("BoolInto")).toString();
+        const QString root = (!into.isEmpty() && reg->hasSymbol(into)) ? into : uuid;
+        const QMap<QString, SymbolInfo> &all = reg->allSymbols();
+        for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+            if (it.key() == uuid || it.value().type != QLatin1String("MechExtrude") ||
+                !it.value().props.value(QStringLiteral("Standalone")).toBool())
+                continue;
+            const QString in2 = it.value().props.value(QStringLiteral("BoolInto")).toString();
+            const QString r2 = (!in2.isEmpty() && reg->hasSymbol(in2)) ? in2 : it.key();
+            ExtrudeInfo e2;
+            if (r2 == root && resolve(scene, it.key(), e2) && std::fabs(e2.x0 - before.x0) < 1e-3 &&
+                std::fabs(e2.x1 - before.x1) < 1e-3)
+                coplanar << it.key();
+        }
+    }
+    // 위에 쌓인 판들: 바꾸기 전 모양으로 찾아 둔다 (윗면 변화량만큼 함께 옮김)
+    const double delta = (bottom + thickness) - before.x1;
+    QStringList stacked;
+    if (std::fabs(delta) > 1e-9) {
+        const QStringList seeds = QStringList{uuid} + coplanar;
+        for (int s = 0; s < seeds.size(); ++s) {
+            const QStringList up = platesStackedOn(scene, seeds.at(s));
+            for (int k = 0; k < up.size(); ++k)
+                if (!seeds.contains(up.at(k)) && !stacked.contains(up.at(k)))
+                    stacked << up.at(k);
+        }
+    }
+
+    QUndoStack *undo = ctx ? ctx->undoStack() : nullptr;
+    if (undo)
+        undo->beginMacro(QStringLiteral("판 높이"));
+    SymbolInfo info = oldInfo;
+    info.props[QStringLiteral("Offset")] = bottom;      // 시작 높이 = 밑면
+    info.props[QStringLiteral("Depth")] = thickness;
+    info.props[QStringLiteral("Symmetric")] = false;    // 가운데 대칭 기록은 밑면 기준으로 바꿔 저장
+    if (undo)
+        undo->push(new UpdateRegistryCommand(reg, uuid, oldInfo, info));
+    else
+        reg->registerSymbol(uuid, info);
+    // 한 장으로 합쳐진 판: 높이·두께를 똑같이
+    for (int i = 0; i < coplanar.size(); ++i) {
+        const SymbolInfo co = reg->symbolInfo(coplanar.at(i));
+        SymbolInfo cn = co;
+        cn.props[QStringLiteral("Offset")] = bottom;
+        cn.props[QStringLiteral("Depth")] = thickness;
+        cn.props[QStringLiteral("Symmetric")] = false;
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, coplanar.at(i), co, cn));
+        else
+            reg->registerSymbol(coplanar.at(i), cn);
+    }
+    // 위에 쌓인 판: 시작 높이(Offset)만 delta 만큼 (두께·대칭 여부 그대로 — 대칭이면 가운데가 옮겨져 같은 결과)
+    for (int i = 0; i < stacked.size(); ++i) {
+        const SymbolInfo so = reg->symbolInfo(stacked.at(i));
+        SymbolInfo sn = so;
+        sn.props[QStringLiteral("Offset")] = so.props.value(QStringLiteral("Offset")).toDouble() + delta;
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, stacked.at(i), so, sn));
+        else
+            reg->registerSymbol(stacked.at(i), sn);
+    }
+    // 판들의 투상도·붙은 돌기·파내기 다시 만들기
+    ProjectionView::regeneratePart(ctx, scene, uuid);
+    for (int i = 0; i < coplanar.size(); ++i)
+        ProjectionView::regeneratePart(ctx, scene, coplanar.at(i));
+    for (int i = 0; i < stacked.size(); ++i)
+        ProjectionView::regeneratePart(ctx, scene, stacked.at(i));
+    if (undo)
+        undo->endMacro();
+    return true;
+}
+
+QStringList ExtrudeFeature::platesStackedOn(MyGraphicsScene *scene, const QString &uuid)
+{
+    QStringList out;
+    if (!scene)
+        return out;
+    // 판 전부의 지금 모양·Z 범위
+    QMap<QString, ExtrudeInfo> plates;
+    const QMap<QString, SymbolInfo> &all = scene->symbolRegistry()->allSymbols();
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        if (it.value().type != QLatin1String("MechExtrude") || !it.value().props.value(QStringLiteral("Standalone")).toBool())
+            continue;
+        ExtrudeInfo ei;
+        if (resolve(scene, it.key(), ei) && !ei.rings.isEmpty())
+            plates.insert(it.key(), ei);
+    }
+    if (!plates.contains(uuid))
+        return out;
+    // 부품 합치기(bool3d)로 묶인 같은 부품끼리만 따라감 — 개별 부품은 각자 높이를 가짐
+    //   묶음의 기준 = A(남는 판): B 는 props "BoolInto" = A, A 는 자기 자신
+    SceneSymbolRegistry *reg = scene->symbolRegistry();
+    QMap<QString, QString> rootOf;
+    for (QMap<QString, ExtrudeInfo>::const_iterator it = plates.constBegin(); it != plates.constEnd(); ++it) {
+        const QString into = reg->symbolInfo(it.key()).props.value(QStringLiteral("BoolInto")).toString();
+        rootOf.insert(it.key(), (!into.isEmpty() && reg->hasSymbol(into)) ? into : it.key());
+    }
+    const QString root = rootOf.value(uuid);
+    // 아래 판 윗면 = 위 판 밑면 이고 평면 모양이 겹치면 "쌓임". 위 판 위에 또 쌓인 판도 차례로 (넓이 우선)
+    const double zTol = 1e-3;
+    QStringList queue{uuid};
+    QSet<QString> seen{uuid};
+    while (!queue.isEmpty()) {
+        const QString cur = queue.takeFirst();
+        const ExtrudeInfo &base = plates[cur];
+        QPainterPath basePath = ringsPath(base.rings);
+        const QRectF bb = basePath.boundingRect();
+        const double aTol = std::max(1e-3, 1e-4 * std::max(bb.width(), bb.height()));
+        for (QMap<QString, ExtrudeInfo>::const_iterator it = plates.constBegin(); it != plates.constEnd(); ++it) {
+            if (seen.contains(it.key()) || rootOf.value(it.key()) != root || std::fabs(it.value().x0 - base.x1) > zTol)
+                continue;                               // 이미 고름 · 다른 부품 · 밑면이 윗면에 안 붙음
+            const QRectF ov = basePath.intersected(ringsPath(it.value().rings)).boundingRect();
+            if (ov.width() < aTol || ov.height() < aTol)
+                continue;                               // 모서리만 닿거나 떨어져 있음
+            seen.insert(it.key());
+            out << it.key();
+            queue << it.key();
+        }
+    }
+    return out;
+}
+
 QSet<QGraphicsItem *> ExtrudeFeature::concealedSketchItems(MyGraphicsScene *scene)
 {
     QSet<QGraphicsItem *> hide, keep;
@@ -698,17 +1073,257 @@ QSet<QGraphicsItem *> ExtrudeFeature::concealedSketchItems(MyGraphicsScene *scen
             continue;
         collectSketch(items, currentArea(scene, it.key()), hide);
     }
+    // 스케치 선을 끈 합친 판 (A 와 그 B 들)
+    for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
+        const QMap<QString, QVariant> &p = it.value().props;
+        if (it.value().type == QLatin1String("MechExtrude") && p.value(QStringLiteral("Standalone")).toBool() &&
+            sketchOff(scene, p))
+            collectSketch(items, currentArea(scene, it.key()), hide);
+    }
     if (hide.isEmpty())
         return hide;
     // 판의 윤곽·정면 파내기에도 쓰는 선은 숨기지 않음 (숨기면 그 판이 없어짐)
     for (QMap<QString, SymbolInfo>::const_iterator it = all.constBegin(); it != all.constEnd(); ++it) {
         const QMap<QString, QVariant> &p = it.value().props;
         if (it.value().type == QLatin1String("MechExtrude") &&
-            (p.value(QStringLiteral("Standalone")).toBool() || p.value(QStringLiteral("PlateFront")).toBool()))
+            (p.value(QStringLiteral("Standalone")).toBool() || p.value(QStringLiteral("PlateFront")).toBool()) &&
+            !sketchOff(scene, p))
             collectSketch(items, currentArea(scene, it.key()), keep);
     }
     hide.subtract(keep);
     return hide;
+}
+
+namespace {
+// 단독 돌출 기록의 Z 범위 (resolve 와 같은 규칙)
+void zRangeOf(const QMap<QString, QVariant> &p, double &z0, double &z1)
+{
+    const double off = p.value(QStringLiteral("Offset")).toDouble(), d = p.value(QStringLiteral("Depth")).toDouble();
+    if (p.value(QStringLiteral("Symmetric")).toBool()) {
+        z0 = off - d * 0.5;
+        z1 = off + d * 0.5;
+    } else {
+        z0 = off;
+        z1 = off + d;
+    }
+}
+
+int opFromKey(const QString &k)
+{
+    if (k == QLatin1String("subtract"))
+        return ExtrudeFeature::BoolSubtract;
+    if (k == QLatin1String("intersect"))
+        return ExtrudeFeature::BoolIntersect;
+    return ExtrudeFeature::BoolUnion;
+}
+
+QJsonArray boolEntries(const QMap<QString, QVariant> &p)
+{
+    return QJsonDocument::fromJson(p.value(QStringLiteral("Bool")).toString().toUtf8()).array();
+}
+
+// A·B Z 범위와 방법 → B 의 역할
+int roleFor(int op, double a0, double a1, double b0, double b1)
+{
+    const double e = 1e-6;
+    const bool sameZ = std::fabs(a0 - b0) < e && std::fabs(a1 - b1) < e;
+    if (op == ExtrudeFeature::BoolIntersect)
+        return ExtrudeInfo::BoolConsumed;
+    if (op == ExtrudeFeature::BoolUnion)
+        return sameZ ? ExtrudeInfo::BoolConsumed : ExtrudeInfo::BoolMerged;
+    if (b0 <= a0 + e && b1 >= a1 - e)
+        return ExtrudeInfo::BoolConsumed;              // B 가 A 의 두께를 덮음 → 평면 빼기
+    if (b1 <= a0 + e || b0 >= a1 - e)
+        return ExtrudeInfo::BoolConsumed;              // Z 가 안 겹침 → 뺄 것 없음 (도구만 숨김)
+    return ExtrudeInfo::BoolCutter;
+}
+
+// 평면 불리언 결과 → 고리 (바깥 반시계·구멍 시계)
+QList<QPolygonF> pathRings(const QPainterPath &p)
+{
+    QPainterPath q = p.simplified();
+    return orientRings(cleanRings(q));
+}
+
+int g_boolDepth = 0;                                    // 합치기 사슬 되부름 방어
+} // namespace
+
+QString ExtrudeFeature::boolOpKey(int op)
+{
+    return op == BoolSubtract ? QStringLiteral("subtract") : (op == BoolIntersect ? QStringLiteral("intersect")
+                                                                                   : QStringLiteral("union"));
+}
+
+QPainterPath ExtrudeFeature::ringsPath(const QList<QPolygonF> &rings)
+{
+    QPainterPath p;
+    p.setFillRule(Qt::OddEvenFill);
+    for (int i = 0; i < rings.size(); ++i) {
+        p.addPolygon(rings.at(i));
+        p.closeSubpath();
+    }
+    return p;
+}
+
+bool ExtrudeFeature::previewBool(MyGraphicsScene *scene, const QString &a, const QString &b, int op,
+                                 QPainterPath &result, double &z0, double &z1, bool &exact)
+{
+    ExtrudeInfo ea, eb;
+    if (!scene || !resolve(scene, a, ea) || !resolve(scene, b, eb) || !ea.standalone || !eb.standalone)
+        return false;
+    const QPainterPath pa = ringsPath(ea.rings), pb = ringsPath(eb.rings);
+    z0 = ea.x0;
+    z1 = ea.x1;
+    const int role = roleFor(op, ea.x0, ea.x1, eb.x0, eb.x1);
+    exact = role == ExtrudeInfo::BoolConsumed;
+    if (op == BoolIntersect) {
+        result = pa.intersected(pb);
+        z0 = std::max(ea.x0, eb.x0);
+        z1 = std::min(ea.x1, eb.x1);
+    } else if (op == BoolUnion) {
+        result = pa.united(pb);
+    } else {
+        const bool zOverlap = eb.x1 > ea.x0 + 1e-6 && eb.x0 < ea.x1 - 1e-6;
+        result = zOverlap ? pa.subtracted(pb) : pa;
+    }
+    return true;
+}
+
+bool ExtrudeFeature::setBool(MyGraphicsScene *scene, QUndoStack *undo, const QString &a, const QString &b, int op,
+                             const QString &newName, QString *error)
+{
+    SceneSymbolRegistry *reg = scene ? scene->symbolRegistry() : nullptr;
+    if (!reg || a == b || !reg->hasSymbol(a) || !reg->hasSymbol(b)) {
+        if (error)
+            *error = QStringLiteral("판 두 개를 골라야 합니다.");
+        return false;
+    }
+    const SymbolInfo oa = reg->symbolInfo(a), ob = reg->symbolInfo(b);
+    if (!ob.props.value(QStringLiteral("BoolInto")).toString().isEmpty() || !boolEntries(ob.props).isEmpty()) {
+        if (error)
+            *error = QStringLiteral("B 는 이미 다른 합치기에 쓰였거나 합친 판입니다. 먼저 풀기를 하세요.");
+        return false;
+    }
+    if (!oa.props.value(QStringLiteral("BoolInto")).toString().isEmpty()) {
+        if (error)
+            *error = QStringLiteral("A 는 이미 다른 판의 도구로 쓰였습니다. 먼저 풀기를 하세요.");
+        return false;
+    }
+    SymbolInfo na = oa, nb = ob;
+    QJsonArray entries = boolEntries(oa.props);
+    QJsonObject e;
+    e.insert(QStringLiteral("with"), b);
+    e.insert(QStringLiteral("op"), boolOpKey(op));
+    entries.append(e);
+    na.props[QStringLiteral("Bool")] = QString::fromUtf8(QJsonDocument(entries).toJson(QJsonDocument::Compact));
+    if (!newName.trimmed().isEmpty() && newName.trimmed() != oa.name) {
+        na.name = newName.trimmed();
+        na.props[QStringLiteral("Name")] = newName.trimmed();
+    }
+    nb.props[QStringLiteral("BoolInto")] = a;
+    if (undo) {
+        undo->push(new UpdateRegistryCommand(reg, a, oa, na));
+        undo->push(new UpdateRegistryCommand(reg, b, ob, nb));
+    } else {
+        reg->registerSymbol(a, na);
+        reg->registerSymbol(b, nb);
+    }
+    return true;
+}
+
+QStringList ExtrudeFeature::clearBool(MyGraphicsScene *scene, QUndoStack *undo, const QString &uuid)
+{
+    QStringList touched;
+    SceneSymbolRegistry *reg = scene ? scene->symbolRegistry() : nullptr;
+    if (!reg || !reg->hasSymbol(uuid))
+        return touched;
+    QString a = uuid;
+    QStringList onlyB;                                  // B 를 골랐으면 그 관계만
+    const QString into = reg->symbolInfo(uuid).props.value(QStringLiteral("BoolInto")).toString();
+    if (!into.isEmpty() && reg->hasSymbol(into)) {
+        a = into;
+        onlyB << uuid;
+    }
+    const SymbolInfo oa = reg->symbolInfo(a);
+    const QJsonArray entries = boolEntries(oa.props);
+    QJsonArray kept;
+    QStringList freed;
+    for (int i = 0; i < entries.size(); ++i) {
+        const QString w = entries.at(i).toObject().value(QStringLiteral("with")).toString();
+        if (onlyB.isEmpty() || onlyB.contains(w))
+            freed << w;
+        else
+            kept.append(entries.at(i));
+    }
+    if (!onlyB.isEmpty() && !freed.contains(onlyB.first()))
+        freed << onlyB.first();                         // 짝이 끊긴 B 도 풀어 줌
+    if (freed.isEmpty())
+        return touched;
+    SymbolInfo na = oa;
+    if (kept.isEmpty()) {
+        na.props.remove(QStringLiteral("Bool"));
+        na.props.remove(QStringLiteral("SketchHidden"));   // 합친 것이 없으면 스케치 선도 다시 보임
+    }
+    else
+        na.props[QStringLiteral("Bool")] = QString::fromUtf8(QJsonDocument(kept).toJson(QJsonDocument::Compact));
+    if (undo)
+        undo->push(new UpdateRegistryCommand(reg, a, oa, na));
+    else
+        reg->registerSymbol(a, na);
+    touched << a;
+    for (int i = 0; i < freed.size(); ++i) {
+        if (!reg->hasSymbol(freed.at(i)))
+            continue;
+        const SymbolInfo ob = reg->symbolInfo(freed.at(i));
+        SymbolInfo nb = ob;
+        nb.props.remove(QStringLiteral("BoolInto"));
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, freed.at(i), ob, nb));
+        else
+            reg->registerSymbol(freed.at(i), nb);
+        touched << freed.at(i);
+    }
+    return touched;
+}
+
+bool ExtrudeFeature::sketchHidden(MyGraphicsScene *scene, const QString &uuid)
+{
+    return scene && scene->symbolRegistry()->hasSymbol(uuid) &&
+           sketchOff(scene, scene->symbolRegistry()->symbolInfo(uuid).props);
+}
+
+void ExtrudeFeature::setSketchHidden(MyGraphicsScene *scene, QUndoStack *undo, const QString &a, bool hidden)
+{
+    SceneSymbolRegistry *reg = scene ? scene->symbolRegistry() : nullptr;
+    if (!reg || !reg->hasSymbol(a))
+        return;
+    // 끄기 전에 A·B 의 지금 모양을 기록 (선이 숨으면 다시 찾을 수 없음)
+    QStringList ids;
+    ids << a;
+    const QJsonArray entries = boolEntries(reg->symbolInfo(a).props);
+    for (int i = 0; i < entries.size(); ++i)
+        ids << entries.at(i).toObject().value(QStringLiteral("with")).toString();
+    for (int i = 0; i < ids.size(); ++i) {
+        if (!reg->hasSymbol(ids.at(i)))
+            continue;
+        const SymbolInfo oldInfo = reg->symbolInfo(ids.at(i));
+        SymbolInfo info = oldInfo;
+        if (i == 0) {
+            if (hidden)
+                info.props[QStringLiteral("SketchHidden")] = true;
+            else
+                info.props.remove(QStringLiteral("SketchHidden"));
+        }
+        if (hidden) {
+            const QPainterPath region = currentArea(scene, ids.at(i));
+            if (!region.isEmpty())
+                info.props[QStringLiteral("Region")] = regionJson(region);
+        }
+        if (undo)
+            undo->push(new UpdateRegistryCommand(reg, ids.at(i), oldInfo, info));
+        else
+            reg->registerSymbol(ids.at(i), info);
+    }
 }
 
 bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, ExtrudeInfo &info)
@@ -741,7 +1356,7 @@ bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, Extrud
         for (int i = 0; i < pj.size(); ++i)
             picks << QPointF(pj.at(i).toArray().at(0).toDouble(), pj.at(i).toArray().at(1).toDouble());
         const QPainterPath region =
-            RevolveProfile::areaRegion(scene, box, picks, true, true, true, plateViewIds(scene, info.host));
+            RevolveProfile::areaRegion(scene, box, picks, true, true, true, plateViewIds(scene, info.host), true);
         if (region.isEmpty())
             return false;
         ExtrudeInfo pe;
@@ -790,8 +1405,10 @@ bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, Extrud
         for (int i = 0; i < vj.size(); ++i)
             ownViews << vj.at(i).toObject().value(QStringLiteral("id")).toString();
         //   고른 점 위에 나중에 그린 닫힌 모양이 있어도 등록 때 공간을 다시 찾도록 보정 (repickRegion)
-        QPainterPath region =
-            repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(), ownViews, true);
+        QPainterPath region = sketchOff(scene, pr)
+                                  ? regionFromJson(pr.value(QStringLiteral("Region")).toString())   // 스케치 선을 끔
+                                  : repickRegion(scene, box, picks, pr.value(QStringLiteral("Region")).toString(),
+                                                 ownViews, true, true);
         // 단독 돌출은 저장된 모양으로 대신하지 않는다: 경계선을 지우면 판도 없어진 것 (3D·투상도에서 빠짐, 선을 되살리면 다시 나타남)
         if (region.isEmpty())
             return false;
@@ -832,6 +1449,48 @@ bool ExtrudeFeature::resolve(MyGraphicsScene *scene, const QString &uuid, Extrud
                 kept = kept2;
             }
             info.rings = kept;
+        }
+        // 부품 합치기: 이 판이 B(도구)면 역할, A 면 B 들을 평면 모양에 계산
+        const QString into = pr.value(QStringLiteral("BoolInto")).toString();
+        if (!into.isEmpty() && scene->symbolRegistry()->hasSymbol(into)) {
+            const QMap<QString, QVariant> pa = scene->symbolRegistry()->symbolInfo(into).props;
+            const QJsonArray ae = boolEntries(pa);
+            for (int i = 0; i < ae.size(); ++i)
+                if (ae.at(i).toObject().value(QStringLiteral("with")).toString() == uuid) {
+                    double a0 = 0.0, a1 = 0.0;
+                    zRangeOf(pa, a0, a1);
+                    info.boolRole = roleFor(opFromKey(ae.at(i).toObject().value(QStringLiteral("op")).toString()), a0, a1,
+                                            info.x0, info.x1);
+                    info.boolTarget = into;
+                }
+        }
+        const QJsonArray entries = boolEntries(pr);
+        if (!entries.isEmpty() && g_boolDepth < 4) {
+            ++g_boolDepth;
+            QPainterPath shape = ringsPath(info.rings);
+            bool changed = false;
+            for (int i = 0; i < entries.size(); ++i) {
+                const QString w = entries.at(i).toObject().value(QStringLiteral("with")).toString();
+                ExtrudeInfo bi;
+                if (w == uuid || !resolve(scene, w, bi) || !bi.standalone || bi.boolTarget != uuid ||
+                    bi.boolRole != ExtrudeInfo::BoolConsumed)
+                    continue;                           // Z 가 달라 Blender 에서 처리하는 것은 그대로
+                const int op = opFromKey(entries.at(i).toObject().value(QStringLiteral("op")).toString());
+                const QPainterPath pb = ringsPath(bi.rings);
+                if (op == BoolUnion) {
+                    shape = shape.united(pb);
+                } else if (op == BoolIntersect) {
+                    shape = shape.intersected(pb);
+                    info.x0 = std::max(info.x0, bi.x0);
+                    info.x1 = std::min(info.x1, bi.x1);
+                } else if (bi.x1 > info.x0 + 1e-6 && bi.x0 < info.x1 - 1e-6) {
+                    shape = shape.subtracted(pb);
+                }
+                changed = true;
+            }
+            --g_boolDepth;
+            if (changed)
+                info.rings = pathRings(shape);
         }
         return !info.rings.isEmpty() && info.x1 - info.x0 > 1e-6;
     }

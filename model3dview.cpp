@@ -1,4 +1,5 @@
 #include "model3dview.h"
+#include "isodrawing.h"
 #include "model3dmesh.h"
 
 #include <QMouseEvent>
@@ -313,9 +314,9 @@ void Model3DView::setPreset(Preset p)
     case PlaneXY:
     case PlaneXZ:
     case PlaneYZ:
-    case Iso:
-        m_yawDeg = -60.0;
-        m_pitchDeg = 35.0;
+    case Iso:                                           // 등각: 세 축 120° (등각도 그리기의 KS 등각도와 같은 방향)
+        m_yawDeg = IsoDrawing::kIsoYawDeg;
+        m_pitchDeg = IsoDrawing::kIsoPitchDeg;
         break;
     case Top:
         m_yawDeg = -90.0;

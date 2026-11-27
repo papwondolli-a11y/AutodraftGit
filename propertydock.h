@@ -59,8 +59,18 @@ public slots:
     void onSymbolWindowDoubleChanged(int index);     // 단창(0)/복창(1) 전환
     void onSymbolWindowGlassToggled(bool on);        // 유리 표현선 on/off
     void onDeleteSymbol();
+    // [3D 기계용] 판 시작 높이·두께 스핀박스 편집 완료 (엔터·포커스 아웃)
+    void onPlateHeightFinished();
 
 private:
+    // [3D 기계용] 선 하나를 골랐고 그 선이 판(단독 돌출)의 경계 스케치나 투상도 선이면
+    //   선 속성 아래(m_extTable2)에 판 높이·두께 편집 표를 덧붙인다. 구멍처럼 m_extTable2 를 쓰는 중이면 안 붙임
+    void showPlateSection();
+    // 판 표의 값들을 지금 기록으로 다시 채움 (편집 뒤)
+    void refreshPlateValues();
+    // 편집 값을 판 기록에 적용 — 투상도를 다시 만들면 선택·표가 바뀌어 스핀박스가 지워질 수 있으므로
+    //   시그널 처리 중이 아니라 이벤트 루프로 돌아온 뒤(QTimer 0) 실행
+    void applyPlateHeight();
     void updateDisplay();
     void showSymbolProperties(const SymbolInfo &info);
     // [3D 기계용] 축: 마지막으로 클릭한 지점의 구간 + 구간 표
@@ -110,6 +120,15 @@ private:
     bool    m_isUpdating  = false;
     QList<CadItem *> m_pendingSectionSync;
     QString m_currentGroupId;   // 현재 선택된 심볼 UUID
+
+    // [3D 기계용] 판 높이·두께 편집 표
+    QString m_plateUuid;                        // 표에 띄운 판 (없으면 빈 문자열)
+    QPointer<MyGraphicsScene> m_plateScene;     // 그 판의 도면 (편집 중 선택 선이 지워져도 쓸 수 있게 따로 둠)
+    QPointer<QDoubleSpinBox> m_plateBottom;     // 시작 높이 (밑면) — 표를 다시 그리면 지워지므로 QPointer
+    QPointer<QDoubleSpinBox> m_plateThick;      // 두께
+    int m_plateTopRow = -1;                     // 윗면 높이(읽기 전용) 줄
+    double m_pendingBottom = 0.0;               // 편집 완료 시 값 (적용은 이벤트 루프로 돌아온 뒤)
+    double m_pendingThick = 0.0;
 };
 
 #endif // PROPERTYDOCK_H

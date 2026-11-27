@@ -104,6 +104,7 @@
 #include "revolvebodytool.h"
 #include "projectionviewtool.h"
 #include "extrudetool.h"
+#include "booltool.h"
 #include "isodrawtool.h"
 #include "depthmovetool.h"
 #include "shafttool.h"
@@ -138,6 +139,14 @@ static CommandBase *createExtrudeCommand(IAppContext *c) {
 
 static CommandBase *createCutCommand(IAppContext *c) {
   return new ToolCommand<CutTool>(c);
+}
+
+static CommandBase *createBoolCommand(IAppContext *c) {
+  return new ToolCommand<BoolTool>(c);
+}
+
+static CommandBase *createUnboolCommand(IAppContext *c) {
+  return new ToolCommand<UnboolTool>(c);
 }
 
 static CommandBase *createIsoDrawCommand(IAppContext *c) {
@@ -292,6 +301,8 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
   factory.registerCommand("mech3d.projectionshow", createProjectionShowCommand);
   factory.registerCommand("mech3d.extrude", createExtrudeCommand);
   factory.registerCommand("mech3d.cut", createCutCommand);
+  factory.registerCommand("mech3d.bool", createBoolCommand);
+  factory.registerCommand("mech3d.unbool", createUnboolCommand);
   factory.registerCommand("mech3d.isodraw", createIsoDrawCommand);
   factory.registerCommand("mech3d.depthmove", createDepthMoveCommand);
   factory.registerCommand("mechtools.shaft", createShaftCommand);
@@ -1933,6 +1944,19 @@ void AppCommandRegistry::registerAllCommands(CommandManager *mgr,
                      tr("파내기"), QString(), QString());
     mgr->registerCommand(factory.createCommand("mech3d.cut", ctx), info,
                          QStringLiteral("cut3d"));
+  }
+  // 메뉴 3D 기계용 — 겹친 판 두 개를 합치기 / 빼기 / 겹침 남기기
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.bool"), tr("3D 기계용"),
+                     tr("부품 합치기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.bool", ctx), info,
+                         QStringLiteral("bool3d"));
+  }
+  {
+    CommandInfo info(QStringLiteral("menu.mech3d.unbool"), tr("3D 기계용"),
+                     tr("부품 합치기 풀기"), QString(), QString());
+    mgr->registerCommand(factory.createCommand("mech3d.unbool", ctx), info,
+                         QStringLiteral("bool3dclear"));
   }
   {
     CommandInfo info(QStringLiteral("menu.mech3d.isodraw"), tr("3D 기계용"),

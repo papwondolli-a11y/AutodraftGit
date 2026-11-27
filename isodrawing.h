@@ -33,8 +33,12 @@ public:
     // 선 계산. view = 보는 사람 쪽 방향, up = 도면 위쪽이 될 방향, scale = 배율. 결과 선은 가운데가 (0, 0)
     static ProjDrawing build(const QList<IsoMesh> &meshes, const QVector3D &view, const QVector3D &up, double scale,
                              bool showHidden, double featureDeg = 20.0);
-    // KS 등각도 방향
-    static void isoAxes(QVector3D &view, QVector3D &up, double &scale);
+    // KS 등각도 방향 — 3D 창의 [등각] 버튼과 같은 방향 (요 kIsoYawDeg, 피치 kIsoPitchDeg)
+    //   standUp 꺼짐 = 도면 Z 가 위 (도면 XY 가 바닥), 켜짐 = 도면 Y 가 위 (3D 창의 세우기와 같음)
+    static void isoAxes(bool standUp, QVector3D &view, QVector3D &up, double &scale);
+    // 등각 방향 (도): 오른쪽 앞에서 45°, 위에서 atan(1/√2) ≈ 35.26° → 세 축이 화면에서 120°
+    static constexpr double kIsoYawDeg = -45.0;
+    static constexpr double kIsoPitchDeg = 35.26438968;
     // 3D 창 요·피치(도) → 방향 (창과 같은 식)
     //   standUp = 창이 부품을 세워 보여 주는 모델 (Model3D::standUp) → 모델 좌표 방향으로 되돌림
     static void orbitAxes(double yawDeg, double pitchDeg, bool standUp, QVector3D &view, QVector3D &up, double &scale);

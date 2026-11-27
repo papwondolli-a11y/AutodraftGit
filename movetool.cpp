@@ -374,12 +374,28 @@ void MoveTool::executeMoveOrCopy(const MyVector &delta) {
 
   // 돌출·파내기 스케치를 옮기는가 (옮기기 전에 확인)
   QMap<QString, QPointF> movedSketches;
+  QSet<QGraphicsItem *> hiddenSketch;   // 스케치선을 끈 합친 판: 외형선과 함께 옮길 숨긴 스케치 선
   if (!m_isCopyMode) {
     QSet<QGraphicsItem *> movedSet;
     for (int i = 0; i < topItems.size(); ++i)
       if (topItems.at(i))
         movedSet.insert(topItems.at(i));
+    // 판 따라가기 판정은 복사본을 넣기 전에 (복사본이 옮기는 판의 경계로 잡히면 판이 안 따라감)
     movedSketches = ExtrudeFeature::sketchesMovedBy(m_scene, movedSet);
+    ExtrudeFeature::outlinesMovedBy(m_scene, movedSet, movedSketches, hiddenSketch);
+    // 두 판이 같이 쓰는 경계 선: 한 판만 옮기면 남는 판의 경계가 끊기므로 제자리에 복사본을 남김
+    const QSet<QGraphicsItem *> shared = ExtrudeFeature::sharedSketchLines(m_scene, movedSet);
+    for (QSet<QGraphicsItem *>::const_iterator it = shared.constBegin(); it != shared.constEnd(); ++it) {
+      CadItem *src = dynamic_cast<CadItem *>(*it);
+      CadItem *copy = src ? src->clone() : nullptr;
+      if (!copy)
+        continue;
+      if (ctx && ctx->undoStack())
+        ctx->undoStack()->push(new AddEntityCommand(m_scene, copy));
+      else
+        m_scene->addItem(copy);
+      copy->setSelected(false);
+    }
   }
 
   for (int i = 0; i < topItems.size(); ++i) {
@@ -415,6 +431,17 @@ void MoveTool::executeMoveOrCopy(const MyVector &delta) {
       }
       cadItem->setSelected(true);
     }
+  }
+
+  // 숨긴 스케치 선도 같은 만큼 (선택은 하지 않음 — 숨긴 선)
+  for (QSet<QGraphicsItem *>::const_iterator it = hiddenSketch.constBegin(); it != hiddenSketch.constEnd(); ++it) {
+    CadItem *ci = dynamic_cast<CadItem *>(*it);
+    if (!ci)
+      continue;
+    if (ctx && ctx->undoStack())
+      ctx->undoStack()->push(new MoveEntityCommand(ci, delta));
+    else
+      ci->move(delta);
   }
 
   // 스케치를 옮긴 돌출·파내기가 따라가게 (같은 undo 매크로)

@@ -86,9 +86,12 @@ public:
     //   excludeHoleSections = 구멍 단면 선(HOLE_SECTION_GROUP_ID)도 경계에서 뺌 (해치 방식 부품의 선 영역용)
     //   excludeHoles = 구멍R·구멍P 객체(HoleItem)도 경계에서 뺌 (단독 돌출: 구멍은 구멍 커터로 따로 판다)
     //   excludeViewIds = 이 뷰 UUID(MECH_VIEW_ID)의 선은 경계에서 뺌 (판 정면에 그린 자기 숨은선이 공간을 쪼개지 않게)
+    //   excludeCenterLines = 도면틀 설정의 중심선 레이어(DrawingSettingsCommand::s_centerLineLayer) 선은 경계에서 뺌
+    //     (돌출·파내기: 공간을 가로지르는 중심선이 공간을 쪼개지 않게. 회전체 단면은 축선이 경계일 수 있어 쓰지 않음)
     static QPainterPath areaRegion(MyGraphicsScene *scene, const QRectF &box, const QList<QPointF> &picks,
                                    bool includeViewLines = false, bool excludeHoleSections = false,
-                                   bool excludeHoles = false, const QStringList &excludeViewIds = QStringList());
+                                   bool excludeHoles = false, const QStringList &excludeViewIds = QStringList(),
+                                   bool excludeCenterLines = false);
     // 해치 방식 부품의 단면 = 해칭이 덮고 있는 "선" 영역 (해칭 안쪽 점을 둘러싼 닫힌 공간).
     //   해칭은 표시용이 되어 구멍 자리를 빼도 3D 단면은 그대로. 선으로 못 찾거나 해칭과 크게 다르면 해칭 모양 그대로.
     static QPainterPath hatchLineRegion(MyGraphicsScene *scene, const QPainterPath &hatchPath);

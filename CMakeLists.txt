@@ -254,6 +254,7 @@ set(SOURCES
     projectionviewtool.cpp
     extrudefeature.cpp
     extrudetool.cpp
+    booltool.cpp
     extrudetarget.cpp
     depthmovetool.cpp
     mech3dviewtool.cpp
@@ -585,6 +586,7 @@ set(HEADERS
     projectionviewtool.h
     extrudefeature.h
     extrudetool.h
+    booltool.h
     extrudetarget.h
     depthmovetool.h
     mech3dviewtool.h

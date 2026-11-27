@@ -1,4 +1,5 @@
 #include "propertydock.h"
+#include "extrudefeature.h"
 #include "mechpartdata.h"
 #include "shaftpick.h"
 #include "cadcommands.h"
@@ -53,6 +54,10 @@
 #include <QUndoStack>
 #include <QVBoxLayout>
 #include <QTimer> // [추가] UI 실시간 갱신용 타이머
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <cmath>
+#include "commanddock.h"
 
 PropertyDock::PropertyDock(IAppContext *appContext, QWidget *parent)
     : QDockWidget(tr("속성 목록"), parent), m_appContext(appContext) {
@@ -118,6 +123,7 @@ void PropertyDock::onSelectionChanged(const QList<QGraphicsItem *> &items) {
             m_selectedItems.append(items[i]);
     }
     updateDisplay();
+    showPlateSection();     // [3D 기계용] 판 선이면 판 높이·두께 표 덧붙임
 
     if (!items.isEmpty() && m_appContext) {
         DrawSubWindow *dw = m_appContext->activeDrawWindow();
@@ -2253,6 +2259,141 @@ QString PropertyDock::translateKey(const QString &key) {
 }
 
 // [3D 기계용] 축: 선택 지점(마지막 클릭 구간) + 구간 표 (읽기 전용)
+// ── [3D 기계용] 판 높이·두께 ─────────────────────────────────────────────────
+void PropertyDock::showPlateSection()
+{
+    m_plateUuid.clear();
+    m_plateScene = nullptr;
+    m_plateBottom = nullptr;
+    m_plateThick = nullptr;
+    m_plateTopRow = -1;
+    if (m_selectedItems.size() != 1 || m_extTable2->rowCount() > 0)
+        return;                                         // 여러 개 선택 · 구멍 3번째 표 사용 중
+    MyGraphicsScene *scene = dynamic_cast<MyGraphicsScene *>(m_selectedItems.first()->scene());
+    if (!scene)
+        return;
+    const QString uuid = ExtrudeFeature::plateOfItem(scene, m_selectedItems.first());
+    ExtrudeInfo ei;
+    if (uuid.isEmpty() || !ExtrudeFeature::resolve(scene, uuid, ei))
+        return;
+    m_plateUuid = uuid;
+    m_plateScene = scene;
+
+    m_isUpdating = true;
+    const int nAttached = ExtrudeFeature::attachedTo(scene, uuid).size();
+    const int nViews = QJsonDocument::fromJson(scene->symbolRegistry()->symbolInfo(uuid).props.value(
+                                                   QStringLiteral("Views")).toString().toUtf8())
+                           .array()
+                           .size();
+    m_extTable2->clearSpans();
+    m_extTable2->setRowCount(6);
+    m_extTable2->setVisible(true);
+
+    // 0: 머리 줄 (판 이름)
+    QTableWidgetItem *head = new QTableWidgetItem(tr("판 '%1' — 높이").arg(ei.name));
+    head->setTextAlignment(Qt::AlignCenter);
+    head->setFlags(head->flags() & ~Qt::ItemIsEditable);
+    if (m_appContext && m_appContext->themeManager())
+        head->setBackground(m_appContext->themeManager()->windowBackground());
+    m_extTable2->setItem(0, 0, head);
+    m_extTable2->setSpan(0, 0, 1, 2);
+
+    // 1·2: 시작 높이(밑면)·두께 — 편집
+    const QString labels[2] = {tr("시작 높이 (mm)"), tr("두께 (mm)")};
+    QDoubleSpinBox *boxes[2];
+    for (int k = 0; k < 2; ++k) {
+        QTableWidgetItem *lab = new QTableWidgetItem(labels[k]);
+        lab->setFlags(lab->flags() & ~Qt::ItemIsEditable);
+        m_extTable2->setItem(1 + k, 0, lab);
+        QDoubleSpinBox *sb = new QDoubleSpinBox(m_extTable2);
+        sb->setDecimals(2);
+        if (k == 0)
+            sb->setRange(-10000.0, 10000.0);
+        else
+            sb->setRange(0.01, 10000.0);
+        sb->setKeyboardTracking(false);
+        connect(sb, &QDoubleSpinBox::editingFinished, this, &PropertyDock::onPlateHeightFinished);
+        m_extTable2->setCellWidget(1 + k, 1, sb);
+        boxes[k] = sb;
+    }
+    m_plateBottom = boxes[0];
+    m_plateThick = boxes[1];
+
+    // 3: 윗면 높이 (읽기 전용) · 4·5: 정보
+    m_plateTopRow = 3;
+    const QString infoLabels[3] = {tr("윗면 높이 (mm)"), tr("붙은 돌기·파내기"), tr("투상도")};
+    const QString infoValues[3] = {QString(), tr("%1개").arg(nAttached), tr("%1개").arg(nViews)};
+    for (int k = 0; k < 3; ++k) {
+        QTableWidgetItem *lab = new QTableWidgetItem(infoLabels[k]);
+        lab->setFlags(lab->flags() & ~Qt::ItemIsEditable);
+        m_extTable2->setItem(3 + k, 0, lab);
+        QTableWidgetItem *val = new QTableWidgetItem(infoValues[k]);
+        val->setFlags(val->flags() & ~Qt::ItemIsEditable);
+        m_extTable2->setItem(3 + k, 1, val);
+    }
+    m_isUpdating = false;
+    refreshPlateValues();
+}
+
+void PropertyDock::refreshPlateValues()
+{
+    if (m_plateUuid.isEmpty() || !m_plateScene || !m_plateBottom || !m_plateThick)
+        return;
+    ExtrudeInfo ei;
+    if (!ExtrudeFeature::resolve(m_plateScene, m_plateUuid, ei))
+        return;
+    // 가운데 대칭 기록도 밑면(x0)·두께로 보여 줌
+    const bool old = m_isUpdating;
+    m_isUpdating = true;
+    m_plateBottom->blockSignals(true);
+    m_plateThick->blockSignals(true);
+    m_plateBottom->setValue(ei.x0);
+    m_plateThick->setValue(ei.x1 - ei.x0);
+    m_plateBottom->blockSignals(false);
+    m_plateThick->blockSignals(false);
+    if (m_plateTopRow >= 0 && m_extTable2->item(m_plateTopRow, 1))
+        m_extTable2->item(m_plateTopRow, 1)->setText(QString::number(ei.x1, 'f', 2));
+    m_isUpdating = old;
+}
+
+void PropertyDock::onPlateHeightFinished()
+{
+    if (m_isUpdating || m_plateUuid.isEmpty() || !m_plateScene || !m_plateBottom || !m_plateThick)
+        return;
+    m_pendingBottom = m_plateBottom->value();
+    m_pendingThick = m_plateThick->value();
+    QTimer::singleShot(0, this, &PropertyDock::applyPlateHeight);
+}
+
+void PropertyDock::applyPlateHeight()
+{
+    if (m_plateUuid.isEmpty() || !m_plateScene)
+        return;
+    ExtrudeInfo ei;
+    if (!ExtrudeFeature::resolve(m_plateScene, m_plateUuid, ei))
+        return;
+    const double bottom = m_pendingBottom;
+    const double thick = m_pendingThick;
+    // 엔터 뒤 포커스 아웃으로 한 번 더 불려도 값이 같으면 아무것도 안 함
+    if (std::fabs(bottom - ei.x0) < 1e-6 && std::fabs(thick - (ei.x1 - ei.x0)) < 1e-6)
+        return;
+    QString err;
+    if (!ExtrudeFeature::setPlateHeight(m_appContext, m_plateScene, m_plateUuid, bottom, thick, &err)) {
+        QMessageBox::warning(this, tr("판 높이"), err);
+        refreshPlateValues();
+        return;
+    }
+    refreshPlateValues();
+    if (m_appContext && m_appContext->commandDock())
+        m_appContext->commandDock()->logMessage(
+            tr("판 '%1' 높이 %2 ~ %3 (두께 %4) — 3D 는 부품 3D 보기 [새로고침].")
+                .arg(ei.name)
+                .arg(bottom, 0, 'f', 2)
+                .arg(bottom + thick, 0, 'f', 2)
+                .arg(thick, 0, 'f', 2),
+            CommandDock::Info);
+}
+
 void PropertyDock::showShaftProperties(const SymbolInfo &info, const QString &uuid)
 {
     m_bottomTable->setVisible(false);

@@ -29,12 +29,29 @@ struct ProjCircle {
     double r = 0.0;
 };
 
+// 타원 / 타원호 (등각도의 원·호 — 3D 원을 비스듬히 본 모양). MyEllipse 와 같은 표현
+//   P(t) = c + major·cos t + minor·sin t, minor = major 를 반시계 90° 돌린 것 × ratio
+//   t0 ~ t1 (라디안, 반시계), full = 전체 타원. ratio ≈ 1 이면 원·호로 넣는다
+struct ProjEllipse {
+    QPointF c;
+    QPointF major;
+    double ratio = 1.0;
+    double t0 = 0.0;
+    double t1 = 6.283185307179586;
+    bool full = true;
+
+    QPointF pointAt(double t) const;
+    QPainterPath path() const;   // 미리보기용
+};
+
 struct ProjDrawing {
     QList<QLineF> visible;
     QList<QLineF> hidden;
     QList<QLineF> center;
     QList<ProjCircle> visibleCircles;
     QList<ProjCircle> hiddenCircles;
+    QList<ProjEllipse> visibleEllipses;   // 등각도: 원·호 모서리
+    QList<ProjEllipse> hiddenEllipses;
 
     bool isEmpty() const;
     QPainterPath path() const;   // 미리보기용
@@ -206,6 +223,8 @@ public:
     static QList<ConcealedView> concealedViews(MyGraphicsScene *scene);
     // 숨긴 측면도 안 구멍(HoleItem)의 보이기 상태를 기록에 맞춤 (도면 불러온 뒤·숨기기/보이기·실행 취소 때)
     static void applyConcealedHoles(MyGraphicsScene *scene);
+    // undo 매크로 처음과 끝에 넣는 "숨김 다시 적용" 명령 (redo·undo 어느 쪽이든 기록이 바뀐 뒤 적용되도록 양 끝에)
+    static void pushApplyConcealed(QUndoStack *undo, MyGraphicsScene *scene);
 };
 
 #endif // PROJECTIONVIEW_H

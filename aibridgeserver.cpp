@@ -1,6 +1,7 @@
 #include "revolveprofile.h"
 #include <QUuid>
 #include "isodrawtool.h"
+#include "isodrawing.h"
 #include "plateview.h"
 #include "shaftpick.h"
 #include "bearinginserttool.h"
@@ -5429,8 +5430,8 @@ QJsonObject AiBridgeServer::toolView3D(const QJsonObject &args) {
   else
     win->view()->setPreset(Model3DView::Iso);
   if (args.contains(QStringLiteral("yaw")) || args.contains(QStringLiteral("pitch")))
-    win->view()->setOrbit(args.value(QStringLiteral("yaw")).toDouble(-60.0),
-                          args.value(QStringLiteral("pitch")).toDouble(35.0));
+    win->view()->setOrbit(args.value(QStringLiteral("yaw")).toDouble(IsoDrawing::kIsoYawDeg),
+                          args.value(QStringLiteral("pitch")).toDouble(IsoDrawing::kIsoPitchDeg));
 
   QCoreApplication::processEvents();
   const QImage img = win->view()->grabFramebuffer();
@@ -5990,10 +5991,13 @@ QJsonObject AiBridgeServer::toolDrawIsometric(const QJsonObject &args) {
   QRectF box;
   for (int i = 0; i < d.visible.size(); ++i)
     box = box.united(QRectF(d.visible.at(i).p1(), d.visible.at(i).p2()).normalized().translated(at));
+  for (int i = 0; i < d.visibleEllipses.size(); ++i)
+    box = box.united(d.visibleEllipses.at(i).path().boundingRect().translated(at));
   QJsonObject result;
   result.insert(QStringLiteral("ok"), true);
   result.insert(QStringLiteral("visibleLines"), d.visible.size());
   result.insert(QStringLiteral("hiddenLines"), d.hidden.size());
+  result.insert(QStringLiteral("ellipses"), d.visibleEllipses.size() + d.hiddenEllipses.size());   // 원·호 모서리 (타원·원)
   result.insert(QStringLiteral("added"), n);
   result.insert(QStringLiteral("bbox"), QJsonArray{box.x(), box.y(), box.width(), box.height()});
   return result;
@@ -6095,9 +6099,13 @@ QJsonObject AiBridgeServer::toolCreateExtrude(const QJsonObject &args) {
     if (readPoint(pj.at(i), p))
       picks << p;
   }
-  const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks, true);
+  // 돌출·파내기는 복합모양(picks 생략)을 쓰지 않는다 — box 안 아무 닫힌 선이나 판이 되어
+  //   선을 지운 뒤 같은 범위에 새로 그린 선을 옛 판 기록이 다시 잡는다 (화면 도구의 B 옵션도 없앰)
+  if (picks.isEmpty())
+    return fail(QStringLiteral("area.picks 가 필요합니다: 돌출할 공간 안쪽 점 [[x,y],…] (여러 곳이면 여러 점)."));
+  const QPainterPath region = RevolveProfile::areaRegion(scene, box, picks, true, false, false, QStringList(), true);   // 중심선 레이어 제외
   if (region.isEmpty())
-    return fail(QStringLiteral("닫힌 공간을 찾지 못했습니다."));
+    return fail(QStringLiteral("닫힌 공간을 찾지 못했습니다 (picks 점을 둘러싼 닫힌 선이 box 근처에 있는지 확인)."));
   QString host, viewId;
   int viewKind = 0;
   const bool forceStandalone = args.value(QStringLiteral("standalone")).toBool(false);

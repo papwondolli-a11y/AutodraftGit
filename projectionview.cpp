@@ -1,6 +1,7 @@
 ﻿#include "projectionview.h"
 
 #include "abstracttool.h"
+#include "booltool.h"
 #include "cadcommands.h"
 #include "caditem.h"
 #include "drawingsettingscommand.h"
@@ -253,7 +254,26 @@ QJsonArray viewsOf(const SymbolInfo &info)
 
 bool ProjDrawing::isEmpty() const
 {
-    return visible.isEmpty() && hidden.isEmpty() && visibleCircles.isEmpty() && hiddenCircles.isEmpty();
+    return visible.isEmpty() && hidden.isEmpty() && visibleCircles.isEmpty() && hiddenCircles.isEmpty()
+           && visibleEllipses.isEmpty() && hiddenEllipses.isEmpty();
+}
+
+QPointF ProjEllipse::pointAt(double t) const
+{
+    const QPointF minor(-major.y() * ratio, major.x() * ratio);
+    return c + major * std::cos(t) + minor * std::sin(t);
+}
+
+QPainterPath ProjEllipse::path() const
+{
+    QPainterPath p;
+    const double a0 = full ? 0.0 : t0;
+    const double a1 = full ? 6.283185307179586 : t1;
+    const int n = std::max(8, int(std::ceil((a1 - a0) / 0.05)));
+    p.moveTo(pointAt(a0));
+    for (int i = 1; i <= n; ++i)
+        p.lineTo(pointAt(a0 + (a1 - a0) * i / n));
+    return p;
 }
 
 QPainterPath ProjDrawing::path() const
@@ -269,6 +289,10 @@ QPainterPath ProjDrawing::path() const
     for (int l = 0; l < 2; ++l)
         for (int i = 0; i < cl[l]->size(); ++i)
             p.addEllipse(cl[l]->at(i).c, cl[l]->at(i).r, cl[l]->at(i).r);
+    const QList<ProjEllipse> *el[2] = {&visibleEllipses, &hiddenEllipses};
+    for (int l = 0; l < 2; ++l)
+        for (int i = 0; i < el[l]->size(); ++i)
+            p.addPath(el[l]->at(i).path());
     return p;
 }
 
@@ -885,6 +909,15 @@ int ProjectionView::syncAfterErase(IAppContext *ctx, MyGraphicsScene *scene, con
                 reg->registerSymbol(it.key(), info);
             regen.insert(it.key());
         }
+    }
+    // 스케치선을 끈 합친 부품의 결과 외형선("boolout:<A>")을 모두 지움 = 그 부품을 지운 것
+    //   → 숨긴 스케치 선·A·B 기록도 삭제 (남겨 두면 저장 모양으로 3D 에 계속 나옴). 일부만 지우면 그대로
+    for (QSet<QString>::const_iterator t = touchedViews.constBegin(); t != touchedViews.constEnd(); ++t) {
+        if (!t->startsWith(QLatin1String("boolout:")) || alive.contains(*t))
+            continue;
+        const QString a = t->mid(8);
+        if (reg->hasSymbol(a))
+            BoolMenu::deletePart(ctx, scene, a);
     }
     // 투상도의 돌출 선을 모두 지움 = 그 돌출을 지운 것 → 돌출 기록도 삭제 (남겨 두면 다시 그릴 때 되살아남)
     //   단, 뷰를 통째로 지운 경우(그 뷰에 남은 선이 없음)는 뷰만 지운 것이므로 돌출은 그대로 둔다
@@ -1816,6 +1849,27 @@ private:
     SymbolInfo m_new;
 };
 } // namespace
+
+namespace {
+// redo·undo 때마다 숨김 상태를 기록에 맞춤
+class ApplyConcealedCommand : public QUndoCommand {
+public:
+    explicit ApplyConcealedCommand(MyGraphicsScene *scene) : m_scene(scene) {}
+    void redo() override { ProjectionView::applyConcealedHoles(m_scene); }
+    void undo() override { ProjectionView::applyConcealedHoles(m_scene); }
+
+private:
+    MyGraphicsScene *m_scene;
+};
+} // namespace
+
+void ProjectionView::pushApplyConcealed(QUndoStack *undo, MyGraphicsScene *scene)
+{
+    if (undo)
+        undo->push(new ApplyConcealedCommand(scene));
+    else
+        applyConcealedHoles(scene);
+}
 
 bool ProjectionView::viewOfItem(MyGraphicsScene *scene, const QGraphicsItem *item, QString &partUuid,
                                 QString &viewId)
