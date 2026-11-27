@@ -2,6 +2,12 @@
 
 #include "commanddock.h"
 #include "extrudefeature.h"
+#include "advancedboundaryfinder.h"
+#include "caditem.h"
+#include "drawingsettingscommand.h"
+#include "hatchitem.h"
+#include "myellipse.h"
+#include "mypolyline.h"
 #include "iappcontext.h"
 #include "mygraphicsscene.h"
 #include "projectionview.h"
@@ -165,7 +171,9 @@ CutTool::CutTool(QObject *parent) : ExtrudeTool(parent)
 void ExtrudeTool::activate(MyGraphicsScene *scene)
 {
     AbstractTool::activate(scene);
-    m_state = AreaBox1;
+    m_state = SelectObjects;
+    m_selected.clear();
+    m_boxDragging = false;
     m_picks.clear();
     m_region = QPainterPath();
     IAppContext *ctx = getContext();
@@ -179,6 +187,7 @@ void ExtrudeTool::activate(MyGraphicsScene *scene)
 void ExtrudeTool::deactivate()
 {
     clearPreview();
+    clearSelected();
     if (m_scene) {
         m_scene->setGhostPath(QPainterPath(), false);
         m_scene->clearOverlay();
@@ -192,12 +201,10 @@ void ExtrudeTool::showPrompt()
     if (!ctx || !ctx->commandDock())
         return;
     CommandDock *dock = ctx->commandDock();
-    if (m_state == AreaBox1)
-        dock->showInteractivePrompt(m_cut ? tr(" 파낼 공간: 경계가 될 객체를 고를 사각상자의 첫 점을 지정하세요 : ")
-                                          : tr(" 돌출할 공간: 경계가 될 객체를 고를 사각상자의 첫 점을 지정하세요 : "),
+    if (m_state == SelectObjects)
+        dock->showInteractivePrompt(m_cut ? tr(" 파낼 공간: 경계가 될 객체를 선택하세요 (클릭·윈도우·크로싱, 끝: 엔터) : ")
+                                          : tr(" 돌출할 공간: 경계가 될 객체를 선택하세요 (클릭·윈도우·크로싱, 끝: 엔터) : "),
                                     {});
-    else if (m_state == AreaBox2)
-        dock->showInteractivePrompt(tr(" 사각상자의 두번째 점을 지정하세요 : "), {});
     else
         dock->showInteractivePrompt(m_cut ? tr(" 파낼 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) : ")
                                           : tr(" 돌출할 내부 공간을 지정하세요 (여러 곳 가능, 끝: 엔터) : "),
@@ -207,6 +214,7 @@ void ExtrudeTool::showPrompt()
 void ExtrudeTool::cancelTool()
 {
     clearPreview();
+    clearSelected();
     if (m_scene) {
         m_scene->setGhostPath(QPainterPath(), false);
         m_scene->clearOverlay();
@@ -214,28 +222,178 @@ void ExtrudeTool::cancelTool()
     emit toolFinished();
 }
 
+void ExtrudeTool::toggleSelected(CadItem *item)
+{
+    if (!item)
+        return;
+    const int i = m_selected.indexOf(item);
+    if (i >= 0) {
+        m_selected.removeAt(i);
+        item->setSelected(false);
+    } else {
+        m_selected << item;
+        item->setSelected(true);
+    }
+    hideGripsOfSelectedItems();
+}
+
+void ExtrudeTool::clearSelected()
+{
+    for (int i = 0; i < m_selected.size(); ++i)
+        if (m_selected.at(i) && m_selected.at(i)->scene())
+            m_selected.at(i)->setSelected(false);
+    m_selected.clear();
+    m_boxDragging = false;
+}
+
+QList<CadItem *> ExtrudeTool::boundaryItems() const
+{
+    // 공간 찾기(RevolveProfile::areaRegion)와 같은 규칙: 해칭·안 보이는 객체·중심선 레이어는 경계가 아님
+    const QString centerLayer = DrawingSettingsCommand::s_centerLineLayer;
+    QList<CadItem *> out;
+    for (int i = 0; i < m_selected.size(); ++i) {
+        CadItem *ci = m_selected.at(i);
+        if (!ci || !ci->scene() || dynamic_cast<HatchItem *>(ci) || !ci->isVisible())
+            continue;
+        if (!centerLayer.isEmpty() && ci->layerName() == centerLayer)
+            continue;
+        out << ci;
+    }
+    return out;
+}
+
+QPainterPath ExtrudeTool::selectedRegion(const QList<QPointF> &picks) const
+{
+    QPainterPath out;
+    const QList<CadItem *> items = boundaryItems();
+    if (items.isEmpty())
+        return out;
+    for (int i = 0; i < picks.size(); ++i) {
+        QPainterPath p = AdvancedBoundaryFinder::findBoundaryPath(items, picks.at(i));
+        if (p.isEmpty())
+            continue;
+        p.setFillRule(Qt::OddEvenFill);
+        out = out.isEmpty() ? p : out.united(p);
+    }
+    return out;
+}
+
+namespace {
+// 닫힌 모양 하나로 된 객체인가 (원 · 전체 타원 · 닫힌 폴리라인)
+bool isClosedShape(const CadItem *ci)
+{
+    const MyEntity *en = ci ? ci->getEntityData() : nullptr;
+    if (!en)
+        return false;
+    if (en->type() == EntityType::Circle)
+        return true;
+    if (en->type() == EntityType::Ellipse)
+        return static_cast<const MyEllipse *>(en)->isFull();
+    if (en->type() == EntityType::Polyline)
+        return static_cast<const MyPolyline *>(en)->isClosed;
+    return false;
+}
+
+// 경로 안쪽의 점 하나 (격자 표본 — 경계에서 칸 크기의 1/4 이상 떨어진 곳, 가운데에 가까운 것). 없으면 false
+bool insidePoint(const QPainterPath &area, QPointF &out)
+{
+    const QRectF bb = area.boundingRect();
+    const int n = 24;
+    const double cw = bb.width() / n, ch = bb.height() / n;
+    const double m = 0.25 * std::min(cw, ch);
+    if (m <= 0.0)
+        return false;
+    const QPointF c = bb.center();
+    double best = 1e300;
+    bool found = false;
+    for (int iy = 0; iy < n; ++iy)
+        for (int ix = 0; ix < n; ++ix) {
+            const QPointF p(bb.left() + (ix + 0.5) * cw, bb.top() + (iy + 0.5) * ch);
+            if (!area.contains(QRectF(p.x() - m, p.y() - m, 2.0 * m, 2.0 * m)))
+                continue;
+            const double d = QLineF(p, c).length();
+            if (d < best) {
+                best = d;
+                out = p;
+                found = true;
+            }
+        }
+    return found;
+}
+} // namespace
+
+void ExtrudeTool::finishSelection()
+{
+    IAppContext *ctx = getContext();
+    m_boxDragging = false;
+    if (m_scene)
+        m_scene->clearOverlay();
+    const QList<CadItem *> items = boundaryItems();
+    if (items.isEmpty()) {
+        if (!m_selected.isEmpty() && ctx && ctx->commandDock())
+            ctx->commandDock()->logMessage(tr("경계가 될 객체가 없습니다 (해칭·중심선 레이어는 경계가 아님)."),
+                                           CommandDock::Warning);
+        cancelTool();
+        return;
+    }
+    // 기록용 경계 사각 = 고른 객체들을 감싸는 사각 (3D 를 다시 그릴 때 이 근처 선에서 공간을 다시 찾음)
+    QRectF box;
+    for (int i = 0; i < items.size(); ++i)
+        box = box.isNull() ? items.at(i)->sceneBoundingRect() : box.united(items.at(i)->sceneBoundingRect());
+    const double pad = 0.01 * std::max(box.width(), box.height());
+    m_box = box.adjusted(-pad, -pad, pad, pad);
+    m_picks.clear();
+    m_region = QPainterPath();
+    // 닫힌 객체 하나: 그 모양 안쪽 점 하나를 자동으로 골라 바로 돌출
+    if (items.size() == 1 && isClosedShape(items.first())) {
+        const QPainterPath whole = AdvancedBoundaryFinder::findBoundaryPathInRect(items, m_box);
+        QPointF p;
+        if (!whole.isEmpty() && insidePoint(whole, p)) {
+            m_picks << p;
+            m_region = selectedRegion(m_picks);
+            if (!m_region.isEmpty()) {
+                finishArea();
+                return;
+            }
+            m_picks.clear();
+        }
+    }
+    m_state = AreaPick;
+    showPrompt();
+}
+
 bool ExtrudeTool::processCommand(const QString &command)
 {
     const QString c = command.trimmed().toUpper();
-    if (m_state == AreaPick && c.isEmpty()) {
-        if (m_picks.isEmpty())
-            cancelTool();
-        else
-            finishArea();
+    if (!c.isEmpty())
+        return false;
+    if (m_state == SelectObjects) {
+        finishSelection();
         return true;
     }
-    return false;
+    if (m_picks.isEmpty())
+        cancelTool();
+    else
+        finishArea();
+    return true;
 }
 
 void ExtrudeTool::keyPress(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
+        if (m_boxDragging) {                            // 사각 그리던 중이면 사각만 취소
+            m_boxDragging = false;
+            if (m_scene)
+                m_scene->clearOverlay();
+            return;
+        }
         cancelTool();
         return;
     }
-    if (m_state == AreaPick &&
-        (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter || event->key() == Qt::Key_Space)) {
-        if (m_picks.isEmpty())
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter || event->key() == Qt::Key_Space) {
+        if (m_state == SelectObjects)
+            finishSelection();
+        else if (m_picks.isEmpty())
             cancelTool();
         else
             finishArea();
@@ -248,21 +406,11 @@ void ExtrudeTool::mouseMove(QPointF pos)
 {
     if (!m_scene)
         return;
-    // 해치 명령과 같은 방식: 스냅 표시 + 두번째 점까지 가상 사각 박스
-    IAppContext *ctx = getContext();
-    QPointF snapped = pos;
-    SnapType snapType = SnapType::None;
-    if (ctx && ctx->snapManager()) {
-        const SnapManager::SnapResult r = ctx->snapManager()->snapPoint(pos, m_scene, m_state == AreaBox2 ? m_box1 : QPointF());
-        snapped = r.snappedPos;
-        snapType = r.type;
+    // 윈도우(왼쪽→오른쪽) / 크로싱(오른쪽→왼쪽) 사각 표시 — 트림 도구의 기준선 선택과 같음
+    if (m_state == SelectObjects && m_boxDragging) {
+        const bool crossing = pos.x() < m_box1.x();
+        m_scene->setSelectionRect(m_box1, pos, crossing ? MyGraphicsScene::Mode_Crossing : MyGraphicsScene::Mode_Window);
     }
-    if (m_state == AreaBox2) {
-        QPainterPath p;
-        p.addRect(QRectF(m_box1, snapped).normalized());
-        updateGhostPreview(p, QString());
-    }
-    m_scene->setSnapMarker(snapped, snapType);
 }
 
 void ExtrudeTool::mousePress(QPointF pos, Qt::MouseButton button)
@@ -271,7 +419,9 @@ void ExtrudeTool::mousePress(QPointF pos, Qt::MouseButton button)
         return;
     IAppContext *ctx = getContext();
     if (button == Qt::RightButton) {
-        if (m_state == AreaPick && !m_picks.isEmpty())
+        if (m_state == SelectObjects)
+            finishSelection();                          // 오른쪽 클릭 = 엔터
+        else if (!m_picks.isEmpty())
             finishArea();
         else
             cancelTool();
@@ -279,40 +429,44 @@ void ExtrudeTool::mousePress(QPointF pos, Qt::MouseButton button)
     }
     if (button != Qt::LeftButton)
         return;
-    QPointF snapped = pos;
-    if (ctx && ctx->snapManager() && m_state != AreaPick)
-        snapped = ctx->snapManager()->snapPoint(pos, m_scene, m_state == AreaBox2 ? m_box1 : QPointF()).snappedPos;
 
-    if (m_state == AreaBox1) {
-        m_box1 = snapped;
-        m_state = AreaBox2;
-        showPrompt();
-        return;
-    }
-    if (m_state == AreaBox2) {
-        m_box = QRectF(m_box1, snapped).normalized();
-        m_scene->setGhostPath(QPainterPath(), false);
-        if (m_box.width() < 1e-5 || m_box.height() < 1e-5) {
-            m_state = AreaBox1;
-            showPrompt();
+    if (m_state == SelectObjects) {
+        if (m_boxDragging) {
+            // 사각 두번째 점: 왼쪽→오른쪽 = 윈도우, 오른쪽→왼쪽 = 크로싱
+            m_boxDragging = false;
+            m_scene->clearOverlay();
+            const bool window = pos.x() > m_box1.x();
+            const QList<CadItem *> got = window ? collectItemsInWindowRect(m_box1, pos)
+                                                : collectItemsInCrossingRect(m_box1, pos);
+            for (int i = 0; i < got.size(); ++i)
+                if (!m_selected.contains(got.at(i))) {
+                    m_selected << got.at(i);
+                    got.at(i)->setSelected(true);
+                }
+            hideGripsOfSelectedItems();
             return;
         }
-        m_picks.clear();
-        m_region = QPainterPath();
-        m_state = AreaPick;
-        showPrompt();
+        CadItem *hit = dynamic_cast<CadItem *>(itemAtPos(pos));
+        if (hit) {
+            toggleSelected(hit);                        // 객체 클릭 = 넣기 / 빼기
+        } else {
+            m_boxDragging = true;                       // 빈 곳 = 사각 첫 점
+            m_box1 = pos;
+        }
         return;
     }
-    // AreaPick
+
+    // AreaPick — 고른 객체만 경계로
     QList<QPointF> one;
     one << pos;
-    if (RevolveProfile::areaRegion(m_scene, m_box, one, true, false, false, QStringList(), true).isEmpty()) {
+    if (selectedRegion(one).isEmpty()) {
         if (ctx && ctx->commandDock())
-            ctx->commandDock()->logMessage(tr("이 점을 둘러싼 닫힌 공간을 찾지 못했습니다."), CommandDock::Warning);
+            ctx->commandDock()->logMessage(tr("이 점을 둘러싼 닫힌 공간을 찾지 못했습니다 (고른 객체로 둘러싸인 곳을 클릭)."),
+                                           CommandDock::Warning);
         return;
     }
     m_picks << pos;
-    m_region = RevolveProfile::areaRegion(m_scene, m_box, m_picks, true, false, false, QStringList(), true);   // 중심선 레이어 제외
+    m_region = selectedRegion(m_picks);
     m_scene->setGhostPath(m_region, true);
 }
 

@@ -16,7 +16,8 @@ class QLineEdit;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ExtrudeTool — 메뉴 "3D 기계용 > 돌출" (명령 ext3d)
-//   ① 해치 명령처럼 공간 고르기: 사각 두 점 → 내부 공간 클릭(여러 곳, 엔터) 또는 [복합모양(B)]
+//   ① 공간 고르기: 경계 객체 선택(클릭·윈도우·크로싱, 엔터) → 내부 공간 클릭(여러 곳, 엔터)
+//      닫힌 객체(원·전체 타원·닫힌 폴리라인) 하나만 고르면 내부 공간 클릭 없이 그 모양 그대로
 //      단면 회전체의 좌·우측면도에 그린 공간 (투상 원도 경계)
 //   ② 설정창: 대상 · 방향 · 이름 · 시작 · 깊이 · [합치기] (ExtrudeDialog — 도면에 대상 강조·방향 화살표 미리보기)
 //   → ExtrudeFeature 등록 → 3D·다른 투상도 갱신
@@ -83,9 +84,18 @@ private slots:
     void updatePreview();    // 설정창의 대상·값이 바뀜 → 도면 미리보기 다시
 
 private:
-    enum State { AreaBox1, AreaBox2, AreaPick };
+    enum State { SelectObjects, AreaPick };
 
     void showPrompt();
+    // ① 경계 객체 선택 끝 (엔터·오른쪽 클릭): 닫힌 객체 하나면 바로 돌출, 아니면 내부 공간 고르기로
+    void finishSelection();
+    // 고른 객체 하나를 선택 목록에 넣거나 뺌 (다시 클릭하면 빠짐)
+    void toggleSelected(CadItem *item);
+    // 고른 객체 표시를 지우고 목록 비움
+    void clearSelected();
+    // 고른 객체만 경계로, picks 점들을 둘러싼 공간 (해칭·안 보이는 객체·중심선 레이어는 경계가 아님)
+    QPainterPath selectedRegion(const QList<QPointF> &picks) const;
+    QList<CadItem *> boundaryItems() const;
     // 고른 내부 점으로 찾은 공간을 돌출·파내기 (복합모양 B 는 없앰 — 사각 안 아무 선이나 판이 되어 지운 판이 되살아남)
     void finishArea();
     // 같은 공간을 다른 대상으로 돌출한 옛 기록을 어떻게 할지 물어봄. false = 취소. remove = 지울 기록
@@ -93,9 +103,11 @@ private:
     void clearPreview();
     void cancelTool();
 
-    State m_state = AreaBox1;
-    QPointF m_box1;
-    QRectF m_box;
+    State m_state = SelectObjects;
+    QList<CadItem *> m_selected;              // 고른 경계 객체
+    bool m_boxDragging = false;               // 빈 곳 클릭 → 윈도우(→)/크로싱(←) 사각 두번째 점 기다리는 중
+    QPointF m_box1;                           // 그 사각의 첫 점
+    QRectF m_box;                             // 기록용 경계 사각 = 고른 객체들을 감싸는 사각
     QList<QPointF> m_picks;
     QPainterPath m_region;
     ExtrudeDialog *m_dialog = nullptr;        // 설정창이 열려 있는 동안만
